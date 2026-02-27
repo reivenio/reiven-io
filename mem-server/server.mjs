@@ -15,6 +15,37 @@ const BEARER = String(process.env.MEM_BEARER_TOKEN || '').trim();
 const uploads = new Map();
 const files = new Map();
 
+const logEvent = (event, details = {}) => {
+  console.log(JSON.stringify({
+    t: new Date().toISOString(),
+    service: 'reiven-mem-server',
+    event,
+    ...details,
+  }));
+};
+
+const tokenFingerprint = (value) => {
+  const token = String(value || '').trim();
+  if (!token) {
+    return null;
+  }
+  return createHash('sha256').update(token).digest('hex').slice(0, 12);
+};
+
+const authSummary = (authorizationHeader) => {
+  const raw = String(authorizationHeader || '');
+  const trimmed = raw.trim();
+  const spaceIndex = trimmed.indexOf(' ');
+  const scheme = spaceIndex > 0 ? trimmed.slice(0, spaceIndex) : (trimmed ? '(no-scheme)' : '');
+  const token = spaceIndex > 0 ? trimmed.slice(spaceIndex + 1).trim() : '';
+  return {
+    hasHeader: Boolean(trimmed),
+    scheme: scheme || null,
+    tokenLength: token.length || 0,
+    tokenFingerprint: tokenFingerprint(token),
+  };
+};
+
 const json = (res, status, payload) => {
   const body = JSON.stringify(payload);
   res.writeHead(status, {
@@ -51,15 +82,46 @@ const ensureDirs = async () => {
   await fs.mkdir(UPLOADS_DIR, { recursive: true });
 };
 
-const requireAuth = (req, res) => {
+const requireAuth = (req, res, context = {}) => {
   if (!BEARER) {
+    logEvent('auth-bypass-no-bearer-configured', {
+      reqId: context.reqId || null,
+      method: req.method,
+      path: context.path || null,
+    });
     return true;
   }
   const value = String(req.headers.authorization || '');
-  if (value !== `Bearer ${BEARER}`) {
+  const expected = `Bearer ${BEARER}`;
+  const providedAuth = authSummary(value);
+  const expectedAuth = {
+    scheme: 'Bearer',
+    tokenLength: BEARER.length,
+    tokenFingerprint: tokenFingerprint(BEARER),
+  };
+
+  if (value !== expected) {
+    logEvent('auth-failed', {
+      reqId: context.reqId || null,
+      method: req.method,
+      path: context.path || null,
+      remoteAddress: req.socket?.remoteAddress || null,
+      userAgent: String(req.headers['user-agent'] || ''),
+      ...providedAuth,
+      expectedScheme: expectedAuth.scheme,
+      expectedTokenLength: expectedAuth.tokenLength,
+      expectedTokenFingerprint: expectedAuth.tokenFingerprint,
+    });
     json(res, 401, { error: 'Unauthorized' });
     return false;
   }
+  logEvent('auth-ok', {
+    reqId: context.reqId || null,
+    method: req.method,
+    path: context.path || null,
+    remoteAddress: req.socket?.remoteAddress || null,
+    ...providedAuth,
+  });
   return true;
 };
 
@@ -110,8 +172,10 @@ const consumeToFile = async (req, filePath) => {
 };
 
 const handleUploadInit = async (req, res) => {
+  logEvent('upload-init-start');
   const body = await readJson(req);
   if (!body || typeof body !== 'object') {
+    logEvent('upload-init-invalid-json');
     return json(res, 400, { error: 'Invalid JSON body' });
   }
 
@@ -123,6 +187,11 @@ const handleUploadInit = async (req, res) => {
   const expiresAt = String(body.expiresAt || nowIso());
 
   if (!fileId || !objectKey || !Number.isFinite(expectedSize) || expectedSize <= 0) {
+    logEvent('upload-init-invalid-payload', {
+      hasFileId: Boolean(fileId),
+      hasObjectKey: Boolean(objectKey),
+      expectedSize,
+    });
     return json(res, 400, { error: 'Invalid upload init payload' });
   }
 
@@ -143,6 +212,12 @@ const handleUploadInit = async (req, res) => {
     parts: new Map(),
   });
 
+  logEvent('upload-init-complete', {
+    uploadId,
+    fileId,
+    objectKey,
+    expectedSize,
+  });
   return json(res, 201, {
     uploadId,
     partSizeBytes: PART_SIZE_BYTES,
@@ -152,12 +227,15 @@ const handleUploadInit = async (req, res) => {
 const handleUploadPart = async (req, res, url) => {
   const uploadId = url.searchParams.get('uploadId');
   const partNumber = Number(url.searchParams.get('partNumber') || 0);
+  logEvent('upload-part-start', { uploadId, partNumber });
   if (!uploadId || !Number.isInteger(partNumber) || partNumber < 1 || partNumber > 10000) {
+    logEvent('upload-part-invalid-query', { uploadId, partNumber });
     return json(res, 400, { error: 'Invalid uploadId or partNumber' });
   }
 
   const session = uploads.get(uploadId);
   if (!session) {
+    logEvent('upload-part-missing-session', { uploadId, partNumber });
     return json(res, 404, { error: 'Upload session not found' });
   }
 
@@ -165,6 +243,7 @@ const handleUploadPart = async (req, res, url) => {
   const { size, etag } = await consumeToFile(req, partPath);
   session.parts.set(partNumber, { etag, size, path: partPath });
 
+  logEvent('upload-part-complete', { uploadId, partNumber, size, etag });
   return json(res, 200, {
     partNumber,
     etag,
@@ -172,8 +251,10 @@ const handleUploadPart = async (req, res, url) => {
 };
 
 const handleUploadComplete = async (req, res) => {
+  logEvent('upload-complete-start');
   const body = await readJson(req);
   if (!body || typeof body !== 'object') {
+    logEvent('upload-complete-invalid-json');
     return json(res, 400, { error: 'Invalid JSON body' });
   }
 
@@ -184,11 +265,19 @@ const handleUploadComplete = async (req, res) => {
   const parts = Array.isArray(body.parts) ? body.parts : [];
 
   if (!uploadId || !fileId || !objectKey || !Number.isFinite(size) || size <= 0 || parts.length === 0) {
+    logEvent('upload-complete-invalid-payload', {
+      uploadId,
+      fileId,
+      objectKey,
+      size,
+      partsLength: parts.length,
+    });
     return json(res, 400, { error: 'Invalid upload completion payload' });
   }
 
   const session = uploads.get(uploadId);
   if (!session) {
+    logEvent('upload-complete-missing-session', { uploadId, fileId });
     return json(res, 404, { error: 'Upload session not found' });
   }
 
@@ -198,6 +287,7 @@ const handleUploadComplete = async (req, res) => {
     .sort((a, b) => a.partNumber - b.partNumber);
 
   if (normalizedParts.length === 0) {
+    logEvent('upload-complete-no-valid-parts', { uploadId, fileId });
     return json(res, 400, { error: 'No valid parts provided' });
   }
 
@@ -205,9 +295,11 @@ const handleUploadComplete = async (req, res) => {
   for (const part of normalizedParts) {
     const stored = session.parts.get(part.partNumber);
     if (!stored) {
+      logEvent('upload-complete-missing-part', { uploadId, fileId, partNumber: part.partNumber });
       return json(res, 400, { error: `Missing uploaded part ${part.partNumber}` });
     }
     if (stored.etag !== part.etag) {
+      logEvent('upload-complete-etag-mismatch', { uploadId, fileId, partNumber: part.partNumber });
       return json(res, 400, { error: `ETag mismatch for part ${part.partNumber}` });
     }
     total += stored.size;
@@ -215,6 +307,7 @@ const handleUploadComplete = async (req, res) => {
 
   const finalId = normalizeFileIdFromObjectKey(objectKey, fileId);
   if (!finalId) {
+    logEvent('upload-complete-invalid-file-id', { uploadId, fileId, objectKey });
     return json(res, 400, { error: 'Invalid file id' });
   }
   const finalPath = filePathFor(finalId);
@@ -242,6 +335,13 @@ const handleUploadComplete = async (req, res) => {
   await fs.rm(session.dir, { recursive: true, force: true });
   uploads.delete(uploadId);
 
+  logEvent('upload-complete-finished', {
+    uploadId,
+    fileId,
+    finalId,
+    objectKey,
+    size: total,
+  });
   return json(res, 200, {
     id: finalId,
     size: total,
@@ -251,7 +351,9 @@ const handleUploadComplete = async (req, res) => {
 const handleUploadAbort = async (req, res) => {
   const body = await readJson(req);
   const uploadId = body && typeof body.uploadId === 'string' ? body.uploadId : '';
+  logEvent('upload-abort-start', { uploadId });
   if (!uploadId) {
+    logEvent('upload-abort-missing-upload-id');
     return json(res, 400, { error: 'Missing uploadId' });
   }
 
@@ -260,6 +362,7 @@ const handleUploadAbort = async (req, res) => {
     await fs.rm(session.dir, { recursive: true, force: true });
     uploads.delete(uploadId);
   }
+  logEvent('upload-abort-complete', { uploadId, sessionFound: Boolean(session) });
   return noContent(res);
 };
 
@@ -351,6 +454,19 @@ const cleanup = async () => {
 const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+    const reqId = randomBytes(6).toString('hex');
+    logEvent('request-start', {
+      reqId,
+      method: req.method,
+      path: url.pathname,
+      query: url.searchParams.toString() || null,
+      remoteAddress: req.socket?.remoteAddress || null,
+      host: String(req.headers.host || ''),
+      forwardedFor: String(req.headers['x-forwarded-for'] || ''),
+      forwardedProto: String(req.headers['x-forwarded-proto'] || ''),
+      userAgent: String(req.headers['user-agent'] || ''),
+      contentLength: String(req.headers['content-length'] || ''),
+    });
 
     if (req.method === 'GET' && url.pathname === '/health') {
       return json(res, 200, {
@@ -360,7 +476,7 @@ const server = createServer(async (req, res) => {
       });
     }
 
-    if (!requireAuth(req, res)) {
+    if (!requireAuth(req, res, { reqId, path: url.pathname })) {
       return;
     }
 
