@@ -6,8 +6,8 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "db:migrate": "wrangler d1 execute encrypted-share-db --file=./migrations/001_init.sql --local && wrangler d1 execute encrypted-share-db --file=./migrations/002_receiver_delete.sql --local",
-    "db:migrate:remote": "wrangler d1 execute encrypted-share-db --file=./migrations/001_init.sql --remote && wrangler d1 execute encrypted-share-db --file=./migrations/002_receiver_delete.sql --remote"
+    "db:migrate": "wrangler d1 execute reiven-io-db --file=./migrations/001_init.sql --local && wrangler d1 execute reiven-io-db --file=./migrations/002_receiver_delete.sql --local",
+    "db:migrate:remote": "wrangler d1 execute reiven-io-db --file=./migrations/001_init.sql --remote && wrangler d1 execute reiven-io-db --file=./migrations/002_receiver_delete.sql --remote"
   },
   "devDependencies": {
     "wrangler": "^4.65.0"
