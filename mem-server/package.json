@@ -1,0 +1,10 @@
+{
+  "name": "reiven-mem-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "In-memory storage backend for Reiven",
+  "scripts": {
+    "start": "node server.mjs"
+  }
+}
