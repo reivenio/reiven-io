@@ -18,7 +18,13 @@ let CHECK_MARKER = 'RAVEN_OK_V2';
 let HEADER_FIXED_LEN = 24;
 const ML_KEM_VARIANT = 'ML-KEM-768';
 let ML_KEM_SEED_DOMAIN = 'REIVEN_MLKEM_SEED_V1';
-let ARGON2_FIXED_PROFILE = { time: 4, mem: 65536, parallelism: 1 };
+const ENCRYPTION_TYPE_STANDARD = 'standard';
+const ENCRYPTION_TYPE_PARANOID = 'paranoid';
+let DEFAULT_ENCRYPTION_TYPE = ENCRYPTION_TYPE_STANDARD;
+let ARGON2_PROFILES = {
+  standard: { time: 4, mem: 65536, parallelism: 1 },
+  paranoid: { time: 6, mem: 131072, parallelism: 1 },
+};
 let mlKem = null;
 
 const applyEncryptionConfig = (cfg) => {
@@ -32,11 +38,30 @@ const applyEncryptionConfig = (cfg) => {
   HEADER_FIXED_LEN = Number(cfg.headerFixedLen || HEADER_FIXED_LEN);
   CHECK_MARKER = String(cfg.checkMarker || CHECK_MARKER);
   ML_KEM_SEED_DOMAIN = String(cfg.mlKemSeedDomain || ML_KEM_SEED_DOMAIN);
+  DEFAULT_ENCRYPTION_TYPE = String(cfg.defaultEncryptionType || DEFAULT_ENCRYPTION_TYPE).toLowerCase() === ENCRYPTION_TYPE_PARANOID
+    ? ENCRYPTION_TYPE_PARANOID
+    : ENCRYPTION_TYPE_STANDARD;
+  if (cfg && typeof cfg.encryptionProfiles === 'object') {
+    const standard = cfg.encryptionProfiles.standard || {};
+    const paranoid = cfg.encryptionProfiles.paranoid || {};
+    ARGON2_PROFILES = {
+      standard: {
+        time: Number(standard.time || ARGON2_PROFILES.standard.time),
+        mem: Number(standard.mem || ARGON2_PROFILES.standard.mem),
+        parallelism: Number(standard.parallelism || 1),
+      },
+      paranoid: {
+        time: Number(paranoid.time || ARGON2_PROFILES.paranoid.time),
+        mem: Number(paranoid.mem || ARGON2_PROFILES.paranoid.mem),
+        parallelism: Number(paranoid.parallelism || 1),
+      },
+    };
+  }
   if (cfg && typeof cfg.argon2FixedProfile === 'object') {
-    ARGON2_FIXED_PROFILE = {
-      time: Number(cfg.argon2FixedProfile.time || ARGON2_FIXED_PROFILE.time),
-      mem: Number(cfg.argon2FixedProfile.mem || ARGON2_FIXED_PROFILE.mem),
-      parallelism: Number(cfg.argon2FixedProfile.parallelism || ARGON2_FIXED_PROFILE.parallelism),
+    ARGON2_PROFILES.standard = {
+      time: Number(cfg.argon2FixedProfile.time || ARGON2_PROFILES.standard.time),
+      mem: Number(cfg.argon2FixedProfile.mem || ARGON2_PROFILES.standard.mem),
+      parallelism: Number(cfg.argon2FixedProfile.parallelism || ARGON2_PROFILES.standard.parallelism),
     };
   }
 };
@@ -108,8 +133,12 @@ const clampArgonParams = (params) => ({
   parallelism: 1,
 });
 
-const paramsWithSecurity = (baseParams, securityLevel, pim) => {
-  return clampArgonParams(ARGON2_FIXED_PROFILE);
+const paramsWithSecurity = (encryptionType) => {
+  const selectedType = String(encryptionType || DEFAULT_ENCRYPTION_TYPE).toLowerCase() === ENCRYPTION_TYPE_PARANOID
+    ? ENCRYPTION_TYPE_PARANOID
+    : ENCRYPTION_TYPE_STANDARD;
+  const profile = ARGON2_PROFILES[selectedType] || ARGON2_PROFILES[ENCRYPTION_TYPE_STANDARD];
+  return clampArgonParams(profile);
 };
 
 const deriveKek = async (password, pim, salt, params) => {
@@ -385,13 +414,13 @@ const calibrate = async ({ targetMinMs = 500, targetMaxMs = 1000, maxRuns = 3 } 
   return { params: clampArgonParams(params), measuredMs: Math.round(lastMs) };
 };
 
-const encrypt = async ({ fileBuffer, password, pim, baseParams, securityLevel, originalName }) => {
+const encrypt = async ({ fileBuffer, password, pim, encryptionType, originalName }) => {
   const subtle = getSubtle();
   const salt = randomBytes(SALT_LEN);
   const checkIv = randomBytes(CHECK_IV_LEN);
   const wrapIv = randomBytes(WRAP_IV_LEN);
   const fileIv = randomBytes(IV_LEN);
-  const argonParams = paramsWithSecurity(baseParams, securityLevel, pim);
+  const argonParams = paramsWithSecurity(encryptionType);
 
   const { keyBytes: kekBytes } = await deriveKek(password, pim, salt, argonParams);
   const rawDek = randomBytes(DEK_LEN);

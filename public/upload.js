@@ -19,8 +19,9 @@ const benchmarkStatusEl = document.getElementById('benchmark-status');
 const securityEstimateEl = document.getElementById('security-estimate');
 const securityDetailsEl = document.getElementById('security-details');
 const bruteForceEstimateEl = document.getElementById('bruteforce-estimate');
+const securityProfileLabelEl = document.getElementById('security-profile-label');
 const passwordInputEl = document.getElementById('password-input');
-const storageNoteEl = document.getElementById('storage-note');
+const encryptionTypeInputEl = document.getElementById('encryption-type-input');
 const tabShareEl = document.getElementById('tab-share');
 const tabDownloadEl = document.getElementById('tab-download');
 const tabCliEl = document.getElementById('tab-cli');
@@ -32,6 +33,8 @@ const codeInputEl = document.getElementById('code-input');
 const codeStatusEl = document.getElementById('code-status');
 const startupOverlayEl = document.getElementById('startup-overlay');
 const STORAGE_BACKEND = 'ramdisk';
+const ENCRYPTION_TYPE_STANDARD = 'standard';
+const ENCRYPTION_TYPE_PARANOID = 'paranoid';
 
 const worker = new Worker('/crypto-worker.js');
 let nextRequestId = 1;
@@ -230,13 +233,27 @@ const getEncryptionConfig = () => {
 };
 
 const getDefaultPim = () => getEncryptionConfig().defaultPim;
-const getDefaultSecurityLevel = () => getEncryptionConfig().defaultSecurityLevel;
-const getFixedLevelLabel = () => getEncryptionConfig().fixedLevelLabel;
+const getDefaultEncryptionType = () => {
+  const value = String(getEncryptionConfig().defaultEncryptionType || ENCRYPTION_TYPE_STANDARD).toLowerCase();
+  if (value === ENCRYPTION_TYPE_PARANOID) {
+    return ENCRYPTION_TYPE_PARANOID;
+  }
+  return ENCRYPTION_TYPE_STANDARD;
+};
 
-const getArgonFixedProfile = () => {
+const getSelectedEncryptionType = () => {
+  const selected = String(encryptionTypeInputEl?.value || getDefaultEncryptionType()).toLowerCase();
+  return selected === ENCRYPTION_TYPE_PARANOID ? ENCRYPTION_TYPE_PARANOID : ENCRYPTION_TYPE_STANDARD;
+};
+
+const getEncryptionProfile = (encryptionType) => {
   const cfg = getEncryptionConfig();
-  const profile = cfg.argon2FixedProfile || {};
+  const profiles = cfg.encryptionProfiles && typeof cfg.encryptionProfiles === 'object' ? cfg.encryptionProfiles : null;
+  const type = encryptionType === ENCRYPTION_TYPE_PARANOID ? ENCRYPTION_TYPE_PARANOID : ENCRYPTION_TYPE_STANDARD;
+  const profile = (profiles && profiles[type]) || cfg.argon2FixedProfile || {};
+  const fallbackLabel = type === ENCRYPTION_TYPE_PARANOID ? 'Paranoid' : 'Standard';
   return clampArgonParams({
+    label: String(profile.label || fallbackLabel),
     time: profile.time,
     mem: profile.mem,
     parallelism: profile.parallelism,
@@ -391,13 +408,6 @@ const formatCode = (value) => {
 };
 
 
-const updateStorageNote = () => {
-  if (!storageNoteEl) {
-    return;
-  }
-  storageNoteEl.textContent = 'Ramdisk mode keeps encrypted files in volatile RAM on your memory server. Files can be lost on outage/restart.';
-};
-
 const setActiveTab = (tab) => {
   const isShare = tab === 'share';
   const isDownload = tab === 'download';
@@ -413,15 +423,13 @@ const setActiveTab = (tab) => {
   panelCliEl.classList.toggle('hidden', !isCli);
 };
 
-const clampArgonParams = (params) => ({
-  time: Math.max(1, Math.min(8, Math.floor(Number(params.time) || 2))),
-  mem: Math.max(16384, Math.min(262144, Math.floor(Number(params.mem) || 32768))),
-  parallelism: 1,
-});
-
-const paramsForLevel = (baseParams, securityLevel, pim) => {
-  // Keep estimator aligned with crypto-worker fixed Argon2 profile.
-  return getArgonFixedProfile();
+const clampArgonParams = (params) => {
+  return {
+    label: String(params.label || 'Standard'),
+    time: Math.max(1, Math.min(8, Math.floor(Number(params.time) || 2))),
+    mem: Math.max(16384, Math.min(262144, Math.floor(Number(params.mem) || 32768))),
+    parallelism: 1,
+  };
 };
 
 const estimateMs = (baseParams, baseMs, targetParams) => {
@@ -498,7 +506,7 @@ const updateBruteForceEstimate = () => {
     return;
   }
 
-  const selectedParams = getArgonFixedProfile();
+  const selectedParams = getEncryptionProfile(getSelectedEncryptionType());
   const attackerGuessesPerSecond = estimateAttackerGuessesPerSecond(selectedParams);
 
   const log10SearchSpace = passwordLen * Math.log10(charsetSize);
@@ -512,7 +520,7 @@ const updateBruteForceEstimate = () => {
     crackedIn = `~${formatDuration(10 ** log10Seconds)}`;
   }
 
-  bruteForceEstimateEl.textContent = `Estimated average crack time (${ATTACKER_CPU_NAME}, highly optimized CPU attack): ${crackedIn}. Assumes random password of length ${passwordLen} over charset size ${charsetSize}, fixed ${getFixedLevelLabel()} profile, PIM=${getDefaultPim()}, and includes ML-KEM wrap overhead. ${ATTACKER_REFERENCE_NOTE}`;
+  bruteForceEstimateEl.textContent = `Estimated average crack time (${ATTACKER_CPU_NAME}, highly optimized CPU attack): ${crackedIn}. Assumes random password of length ${passwordLen} over charset size ${charsetSize}, ${selectedParams.label} profile, PIM=${getDefaultPim()}, and includes ML-KEM wrap overhead. ${ATTACKER_REFERENCE_NOTE}`;
 };
 
 const updateSecurityEstimate = () => {
@@ -523,9 +531,12 @@ const updateSecurityEstimate = () => {
 
   const base = calibrationProfile.params;
   const baseMs = calibrationProfile.measuredMs;
-  const selectedParams = paramsForLevel(base, getDefaultSecurityLevel(), getDefaultPim());
+  const selectedParams = getEncryptionProfile(getSelectedEncryptionType());
   const selectedTime = estimateMs(base, baseMs, selectedParams);
   const memMb = Math.round(selectedParams.mem / 1024);
+  if (securityProfileLabelEl) {
+    securityProfileLabelEl.textContent = `Security profile: ${selectedParams.label}`;
+  }
   securityEstimateEl.textContent = `Estimated encryption time on your device: ~${formatMs(selectedTime)}.`;
   securityDetailsEl.textContent = `Encryption is done in-browser using Argon2id (PIM=${getDefaultPim()}, iterations=${selectedParams.time}, memory=${memMb}MB, parallelism=${selectedParams.parallelism}) to derive a KEK seed. A deterministic ML-KEM-768 keypair is derived from that seed, the DEK is wrapped via ML-KEM shared secret, and file payload uses AES-256-GCM with a random 256-bit DEK.`;
   updateBruteForceEstimate();
@@ -626,6 +637,9 @@ const initializeSecurityControls = async () => {
 };
 
 passwordInputEl.addEventListener('input', updateBruteForceEstimate);
+if (encryptionTypeInputEl) {
+  encryptionTypeInputEl.addEventListener('change', updateSecurityEstimate);
+}
 tabShareEl.addEventListener('click', () => setActiveTab('share'));
 tabDownloadEl.addEventListener('click', () => setActiveTab('download'));
 tabCliEl.addEventListener('click', () => setActiveTab('cli'));
@@ -655,7 +669,7 @@ uploadForm.addEventListener('submit', async (event) => {
 
   try {
     const pim = getDefaultPim();
-    const securityLevel = getDefaultSecurityLevel();
+    const encryptionType = getSelectedEncryptionType();
     uploadBtn.disabled = true;
     linksEl.classList.add('hidden');
     uploadForm.classList.remove('hidden');
@@ -673,7 +687,7 @@ uploadForm.addEventListener('submit', async (event) => {
         fileBuffer,
         password,
         pim,
-        securityLevel,
+        encryptionType,
         baseParams: calibrationProfile.params,
         originalName: file.name,
       },
@@ -691,7 +705,8 @@ uploadForm.addEventListener('submit', async (event) => {
       }
     );
 
-    const statusPrefix = `Profile ${getFixedLevelLabel()}: Argon2id time=${encryptedResult.argonParams.time}, mem=${Math.round(encryptedResult.argonParams.mem / 1024)}MB, PIM=${pim}.`;
+    const selectedProfile = getEncryptionProfile(encryptionType);
+    const statusPrefix = `Profile ${selectedProfile.label}: Argon2id time=${encryptedResult.argonParams.time}, mem=${Math.round(encryptedResult.argonParams.mem / 1024)}MB, PIM=${pim}.`;
     showStatus(`${statusPrefix} Uploading...`);
     const encryptedBlob = new Blob([encryptedResult.envelopeBuffer], { type: 'application/octet-stream' });
     const encryptedName = 'encrypted.bin';
@@ -780,7 +795,9 @@ const initializeApp = async () => {
     finishStartupLoading();
     return;
   }
-  updateStorageNote();
+  if (encryptionTypeInputEl) {
+    encryptionTypeInputEl.value = getDefaultEncryptionType();
+  }
   initializeSecurityControls();
 };
 

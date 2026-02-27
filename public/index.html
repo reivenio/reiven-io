@@ -38,14 +38,17 @@
           </label>
 
           <label>
-            Storage backend
-            <input type="text" value="Ramdisk (volatile memory)" readonly />
-            <small id="storage-note" class="muted">Ramdisk mode keeps encrypted files in volatile RAM on your memory server. Files can be lost on outage/restart.</small>
+            Encryption profile
+            <select id="encryption-type-input">
+              <option value="standard" selected>Standard</option>
+              <option value="paranoid">Paranoid</option>
+            </select>
+            <small class="muted">Paranoid increases Argon2 work factor and can be much slower on weak devices.</small>
           </label>
 
           <section class="security-card">
             <div class="security-head">
-              <strong>Security profile: Hardened (fixed)</strong>
+              <strong id="security-profile-label">Security profile: Standard</strong>
               <span id="benchmark-status" class="muted">Running browser benchmark...</span>
             </div>
             <p id="security-estimate" class="muted">Estimated encryption time on your device: calculating...</p>
