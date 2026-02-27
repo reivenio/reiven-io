@@ -41,6 +41,8 @@ Upload command will:
 reiven get <code-or-id> --base https://reiven.io --out ./downloads --pim 100
 reiven put <file-path> --base https://reiven.io --pim 100
 reiven upload <file-path> --base https://reiven.io --pim 100
+reiven put <file-path> --storage mem
+reiven put <file-path> --mem
 reiven put <file-path> --debug
 ```
 

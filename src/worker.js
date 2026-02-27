@@ -3,6 +3,8 @@ import { ENCRYPTION_CONFIG } from '../shared/encryption-config.mjs';
 const DEFAULT_TTL_HOURS = 24;
 const DEFAULT_MAX_FILE_SIZE_MB = 2048;
 const DEFAULT_PART_SIZE_BYTES = 50 * 1024 * 1024;
+const STORAGE_R2 = "r2";
+const STORAGE_MEM = "mem";
 
 const json = (body, init = {}) => new Response(JSON.stringify(body), {
   headers: {
@@ -42,6 +44,53 @@ const parseEnvNumber = (value, fallback) => {
   return Number.isFinite(num) && num > 0 ? num : fallback;
 };
 
+const parseStorageMode = (value) => {
+  if (String(value || "").toLowerCase() === STORAGE_MEM) {
+    return STORAGE_MEM;
+  }
+  return STORAGE_R2;
+};
+
+const isMemObjectKey = (value) => String(value || "").startsWith("mem:");
+
+const getMemBaseUrl = (env) => {
+  const raw = String(env.MEM_STORAGE_BASE_URL || "").trim();
+  if (!raw) {
+    return null;
+  }
+  try {
+    return new URL(raw).origin;
+  } catch {
+    return null;
+  }
+};
+
+const memFetch = async (env, path, init = {}) => {
+  const base = getMemBaseUrl(env);
+  if (!base) {
+    throw new Error('Memory storage backend is not configured');
+  }
+
+  const headers = new Headers(init.headers || {});
+  const token = String(env.MEM_STORAGE_BEARER_TOKEN || '').trim();
+  if (token) {
+    headers.set('authorization', `Bearer ${token}`);
+  }
+
+  return fetch(`${base}${path}`, {
+    ...init,
+    headers,
+  });
+};
+
+const parseJsonSafe = async (response) => {
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+};
+
 const generateAccessCodeRaw = () => {
   const arr = new Uint8Array(8);
   crypto.getRandomValues(arr);
@@ -73,8 +122,12 @@ const logApi = (request, message, extra = {}) => {
 };
 
 const deleteFileRecord = async (env, row) => {
+  const deleteBlobPromise = isMemObjectKey(row.object_key)
+    ? memFetch(env, `/api/file/${encodeURIComponent(row.id)}`, { method: 'DELETE' })
+    : env.FILES.delete(row.object_key);
+
   await Promise.allSettled([
-    env.FILES.delete(row.object_key),
+    deleteBlobPromise,
     env.DB.prepare('DELETE FROM file_codes WHERE file_id = ?1').bind(row.id).run(),
     env.DB.prepare('DELETE FROM files WHERE id = ?1').bind(row.id).run(),
   ]);
@@ -161,6 +214,7 @@ const handleUploadInit = async (request, env) => {
   }
 
   const expectedSize = Number(body.size || 0);
+  const storageMode = parseStorageMode(body.storage);
   const originalNameHeader = String(body.originalName || '').trim();
   const originalName = (originalNameHeader || 'encrypted.bin').slice(0, 255);
 
@@ -176,33 +230,61 @@ const handleUploadInit = async (request, env) => {
 
   const fileId = randomId(9);
   const deleteToken = randomId(24);
-  const objectKey = `${fileId}.bin`;
+  const objectKey = storageMode === STORAGE_MEM ? `mem:${fileId}` : `${fileId}.bin`;
   const ttlHours = parseEnvNumber(env.FILE_TTL_HOURS, DEFAULT_TTL_HOURS);
   const createdAt = nowIso();
   const expiresAt = addHoursIso(ttlHours);
 
-  const upload = await env.FILES.createMultipartUpload(objectKey, {
-    httpMetadata: {
-      contentType: 'application/octet-stream',
-      contentDisposition: `attachment; filename="${originalName}"`,
-    },
-    customMetadata: {
-      id: fileId,
-      createdAt,
-      expiresAt,
-    },
-  });
+  let uploadId = '';
+  let partSizeBytes = DEFAULT_PART_SIZE_BYTES;
+
+  if (storageMode === STORAGE_MEM) {
+    const memInitResponse = await memFetch(env, '/api/upload/init', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        fileId,
+        objectKey,
+        originalName,
+        size: expectedSize,
+        createdAt,
+        expiresAt,
+      }),
+    });
+    const memInitPayload = await parseJsonSafe(memInitResponse);
+    if (!memInitResponse.ok) {
+      return json({ error: memInitPayload?.error || 'Memory upload initialization failed' }, { status: 502 });
+    }
+    uploadId = String(memInitPayload?.uploadId || '');
+    partSizeBytes = Number(memInitPayload?.partSizeBytes || DEFAULT_PART_SIZE_BYTES);
+    if (!uploadId || !Number.isFinite(partSizeBytes) || partSizeBytes <= 0) {
+      return json({ error: 'Memory upload initialization returned invalid session data' }, { status: 502 });
+    }
+  } else {
+    const upload = await env.FILES.createMultipartUpload(objectKey, {
+      httpMetadata: {
+        contentType: 'application/octet-stream',
+        contentDisposition: `attachment; filename="${originalName}"`,
+      },
+      customMetadata: {
+        id: fileId,
+        createdAt,
+        expiresAt,
+      },
+    });
+    uploadId = upload.uploadId;
+  }
 
   await env.DB.prepare(
     'INSERT INTO uploads (upload_id, file_id, object_key, original_name, created_at, expires_at, delete_token, expected_size) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)'
   )
-    .bind(upload.uploadId, fileId, objectKey, originalName, createdAt, expiresAt, deleteToken, expectedSize)
+    .bind(uploadId, fileId, objectKey, originalName, createdAt, expiresAt, deleteToken, expectedSize)
     .run();
 
-  logApi(request, 'upload-init-complete', { fileId, uploadId: upload.uploadId, expectedSize });
+  logApi(request, 'upload-init-complete', { fileId, uploadId, expectedSize, storageMode });
   return json({
-    uploadId: upload.uploadId,
-    partSizeBytes: DEFAULT_PART_SIZE_BYTES,
+    uploadId,
+    partSizeBytes,
   }, { status: 201 });
 };
 
@@ -222,6 +304,24 @@ const handleUploadPart = async (request, env) => {
   const uploadRow = await loadUploadRow(env, uploadId);
   if (!uploadRow) {
     return json({ error: 'Upload session not found' }, { status: 404 });
+  }
+
+  if (isMemObjectKey(uploadRow.object_key)) {
+    const memPartResponse = await memFetch(env, `/api/upload/part?uploadId=${encodeURIComponent(uploadId)}&partNumber=${partNumber}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/octet-stream' },
+      body: request.body,
+      duplex: 'half',
+    });
+    const memPartPayload = await parseJsonSafe(memPartResponse);
+    if (!memPartResponse.ok) {
+      return json({ error: memPartPayload?.error || 'Memory upload part failed' }, { status: 502 });
+    }
+
+    return json({
+      partNumber: Number(memPartPayload?.partNumber || partNumber),
+      etag: String(memPartPayload?.etag || ''),
+    });
   }
 
   const multipart = env.FILES.resumeMultipartUpload(uploadRow.object_key, uploadId);
@@ -264,8 +364,26 @@ const handleUploadComplete = async (request, env) => {
     return json({ error: 'No valid parts provided' }, { status: 400 });
   }
 
-  const multipart = env.FILES.resumeMultipartUpload(uploadRow.object_key, uploadId);
-  await multipart.complete(parts);
+  if (isMemObjectKey(uploadRow.object_key)) {
+    const memCompleteResponse = await memFetch(env, '/api/upload/complete', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        uploadId,
+        fileId: uploadRow.file_id,
+        objectKey: uploadRow.object_key,
+        size,
+        parts,
+      }),
+    });
+    const memCompletePayload = await parseJsonSafe(memCompleteResponse);
+    if (!memCompleteResponse.ok) {
+      return json({ error: memCompletePayload?.error || 'Memory upload completion failed' }, { status: 502 });
+    }
+  } else {
+    const multipart = env.FILES.resumeMultipartUpload(uploadRow.object_key, uploadId);
+    await multipart.complete(parts);
+  }
 
   await env.DB.prepare(
     'INSERT INTO files (id, object_key, original_name, size, created_at, expires_at, delete_token, download_count) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0)'
@@ -302,8 +420,16 @@ const handleUploadAbort = async (request, env) => {
   }
 
   try {
-    const multipart = env.FILES.resumeMultipartUpload(uploadRow.object_key, uploadId);
-    await multipart.abort();
+    if (isMemObjectKey(uploadRow.object_key)) {
+      await memFetch(env, '/api/upload/abort', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ uploadId }),
+      });
+    } else {
+      const multipart = env.FILES.resumeMultipartUpload(uploadRow.object_key, uploadId);
+      await multipart.abort();
+    }
   } catch {
     // Ignore abort failures in PoC cleanup path.
   }
@@ -313,6 +439,7 @@ const handleUploadAbort = async (request, env) => {
 };
 
 const handleFileInfo = async (request, env, id) => {
+
   logApi(request, 'file-info', { id });
   const row = await loadFileRow(env, id);
   if (!row) {
@@ -397,6 +524,46 @@ const handleDownload = async (request, env, id) => {
     isRangeRequest = true;
   }
 
+  if (isMemObjectKey(row.object_key)) {
+    const headers = new Headers();
+    if (rangeHeader) {
+      headers.set('range', rangeHeader);
+    }
+
+    const memResponse = await memFetch(env, `/api/file/${encodeURIComponent(id)}/download`, {
+      method: 'GET',
+      headers,
+    });
+
+    if (memResponse.status === 404) {
+      await env.DB.prepare('DELETE FROM files WHERE id = ?1').bind(id).run();
+      return json({ error: 'File not found or expired' }, { status: 404 });
+    }
+
+    if (!memResponse.ok || !memResponse.body) {
+      return json({ error: 'Memory download failed' }, { status: 502 });
+    }
+
+    if (!isRangeRequest) {
+      await env.DB.prepare('UPDATE files SET download_count = download_count + 1 WHERE id = ?1').bind(id).run();
+    }
+
+    const outHeaders = new Headers(memResponse.headers);
+    outHeaders.set('cache-control', 'no-store');
+    outHeaders.set('accept-ranges', outHeaders.get('accept-ranges') || 'bytes');
+    if (!outHeaders.get('content-disposition')) {
+      outHeaders.set('content-disposition', `attachment; filename="${row.original_name}"`);
+    }
+    if (!outHeaders.get('content-type')) {
+      outHeaders.set('content-type', 'application/octet-stream');
+    }
+
+    return new Response(memResponse.body, {
+      status: memResponse.status,
+      headers: outHeaders,
+    });
+  }
+
   const object = range
     ? await env.FILES.get(row.object_key, { range })
     : await env.FILES.get(row.object_key);
@@ -437,6 +604,7 @@ const handleDownload = async (request, env, id) => {
 };
 
 const handleDeleteApi = async (request, env, id) => {
+
   logApi(request, 'delete-api-start', { id });
   const token = new URL(request.url).searchParams.get('token');
   if (!token) {

@@ -27,3 +27,4 @@ bucket_name = "reiven-io-files"
 [vars]
 FILE_TTL_HOURS = "24"
 MAX_FILE_SIZE_MB = "2048"
+MEM_STORAGE_BASE_URL = "https://tmpfs.reiven.io"

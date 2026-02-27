@@ -78,15 +78,16 @@ const createProgressRenderer = (label) => {
 const printUsage = () => {
   console.log(`Usage:
   reiven get <file-id-or-access-code> [--base https://reiven.io] [--out <directory>] [--pim 100] [--debug]
-  reiven put <file-path> [--base https://reiven.io] [--pim 100] [--debug]
-  reiven upload <file-path> [--base https://reiven.io] [--pim 100] [--debug]
+  reiven put <file-path> [--base https://reiven.io] [--storage r2|mem] [--mem] [--pim 100] [--debug]
+  reiven upload <file-path> [--base https://reiven.io] [--storage r2|mem] [--mem] [--pim 100] [--debug]
 
 Examples:
   reiven get 23287345
   reiven get 12-34-56-78
   reiven get f8a91c2de --out ./downloads
   reiven get 23287345 --base https://reiven.io
-  reiven put ./report.pdf`);
+  reiven put ./report.pdf
+  reiven put ./report.pdf --mem`);
 };
 
 const fail = (message, code = 1) => {
@@ -112,6 +113,7 @@ const parseArgs = (argv) => {
   let outDir = process.cwd();
   let pim = DEFAULT_PIM;
   let debug = false;
+  let storage = STORAGE_R2;
 
   for (let i = 0; i < rest.length; i += 1) {
     const arg = rest[i];
@@ -140,6 +142,17 @@ const parseArgs = (argv) => {
       debug = true;
       continue;
     }
+    if (arg === '--mem') {
+      storage = STORAGE_MEM;
+      continue;
+    }
+    if (arg === '--storage') {
+      const value = normalizeStorage(rest[i + 1]);
+      if (!rest[i + 1]) fail('Missing value for --storage.');
+      storage = value;
+      i += 1;
+      continue;
+    }
     fail(`Unknown argument: ${arg}`);
   }
 
@@ -158,7 +171,16 @@ const parseArgs = (argv) => {
     outDir: command === 'get' ? path.resolve(outDir) : undefined,
     pim,
     debug,
+    storage,
   };
+};
+
+const STORAGE_R2 = 'r2';
+const STORAGE_MEM = 'mem';
+
+const normalizeStorage = (value) => {
+  const v = String(value || '').toLowerCase();
+  return v === STORAGE_MEM ? STORAGE_MEM : STORAGE_R2;
 };
 
 const parseApiResponse = async (response) => {
@@ -763,10 +785,11 @@ const uploadPart = async (base, uploadId, partNumber, chunkBytes, onProgress) =>
   };
 };
 
-const uploadEncryptedMultipart = async (base, encryptedBytes, debug = false) => {
+const uploadEncryptedMultipart = async (base, encryptedBytes, storage, debug = false) => {
   const init = await postJson(`${base}/api/upload/init`, {
     originalName: 'encrypted.bin',
     size: encryptedBytes.byteLength,
+    storage: normalizeStorage(storage),
   });
 
   const uploadId = String(init.uploadId || '');
@@ -851,7 +874,7 @@ const runGet = async ({ target, base, outDir, pim, debug = false }) => {
   console.log(`Saved: ${outputPath}`);
 };
 
-const runPut = async ({ target, base, pim, debug = false }) => {
+const runPut = async ({ target, base, pim, storage = STORAGE_R2, debug = false }) => {
   const debugLog = (...args) => {
     if (debug) {
       console.log(...args);
@@ -884,7 +907,7 @@ const runPut = async ({ target, base, pim, debug = false }) => {
   debugLog(`Argon2id profile: time=${encrypted.argonParams.time}, mem=${Math.round(encrypted.argonParams.mem / 1024)}MB, parallelism=${encrypted.argonParams.parallelism}, PIM=${pim}`);
 
   debugLog('Starting multipart upload...');
-  const payload = await uploadEncryptedMultipart(base, encrypted.envelopeBytes, debug);
+  const payload = await uploadEncryptedMultipart(base, encrypted.envelopeBytes, storage, debug);
 
   console.log(`Access code: *** ${payload.accessCode || 'N/A'} ***`);
   console.log(`Download URL: ${payload.downloadUrl}`);

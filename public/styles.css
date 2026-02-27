@@ -177,7 +177,9 @@ small {
 
 input[type='file'],
 input[type='password'],
-input[type='number'] {
+input[type='number'],
+select {
+
   display: block;
   margin-top: 8px;
   width: 100%;

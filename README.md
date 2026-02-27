@@ -73,6 +73,8 @@ npm run deploy
 
 - `FILE_TTL_HOURS` (default `24`)
 - `MAX_FILE_SIZE_MB` (default `2048`)
+- `MEM_STORAGE_BASE_URL` (optional, enables memory backend when set)
+- `MEM_STORAGE_BEARER_TOKEN` (optional auth token for memory backend)
 
 ## Shared encryption config
 
