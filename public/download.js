@@ -6,6 +6,7 @@ const statusEl = document.getElementById('status');
 const fileMetaEl = document.getElementById('file-meta');
 const downloadForm = document.getElementById('download-form');
 const downloadBtn = document.getElementById('download-btn');
+const receiverDeleteBtn = document.getElementById('receiver-delete-btn');
 const slowWarningEl = document.getElementById('slow-warning');
 let statusDotsTimer = null;
 let slowWarningTimer = null;
@@ -266,9 +267,24 @@ const loadInfo = async (id) => {
     }
 
     fileMetaEl.textContent = `File ID: ${payload.id} | Size: ${payload.size} bytes | Expires: ${new Date(payload.expiresAt).toLocaleString()}`;
+    if (receiverDeleteBtn) {
+      const allowReceiverDelete = payload && payload.allowReceiverDelete === true && typeof payload.deleteUrl === 'string' && payload.deleteUrl;
+      receiverDeleteBtn.classList.toggle('hidden', !allowReceiverDelete);
+      if (allowReceiverDelete) {
+        receiverDeleteBtn.onclick = () => {
+          window.location.href = payload.deleteUrl;
+        };
+      } else {
+        receiverDeleteBtn.onclick = null;
+      }
+    }
   } catch (error) {
     fileMetaEl.textContent = error.message;
     downloadBtn.disabled = true;
+    if (receiverDeleteBtn) {
+      receiverDeleteBtn.classList.add('hidden');
+      receiverDeleteBtn.onclick = null;
+    }
   }
 };
 

@@ -22,6 +22,7 @@ const bruteForceEstimateEl = document.getElementById('bruteforce-estimate');
 const securityProfileLabelEl = document.getElementById('security-profile-label');
 const passwordInputEl = document.getElementById('password-input');
 const encryptionTypeInputEl = document.getElementById('encryption-type-input');
+const allowReceiverDeleteInputEl = document.getElementById('allow-receiver-delete-input');
 const tabShareEl = document.getElementById('tab-share');
 const tabDownloadEl = document.getElementById('tab-download');
 const tabCliEl = document.getElementById('tab-cli');
@@ -298,7 +299,7 @@ const uploadPart = ({ uploadId, partNumber, chunkBlob, onProgress }) => {
   });
 };
 
-const uploadEncryptedBlobMultipart = async ({ blob, originalName, statusPrefix }) => {
+const uploadEncryptedBlobMultipart = async ({ blob, originalName, statusPrefix, allowReceiverDelete }) => {
   const init = await requestJson('/api/upload/init', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -306,6 +307,7 @@ const uploadEncryptedBlobMultipart = async ({ blob, originalName, statusPrefix }
       originalName,
       size: blob.size,
       storage: STORAGE_BACKEND,
+      allowReceiverDelete: Boolean(allowReceiverDelete),
     }),
   });
 
@@ -670,6 +672,7 @@ uploadForm.addEventListener('submit', async (event) => {
   try {
     const pim = getDefaultPim();
     const encryptionType = getSelectedEncryptionType();
+    const allowReceiverDelete = Boolean(allowReceiverDeleteInputEl && allowReceiverDeleteInputEl.checked);
     uploadBtn.disabled = true;
     linksEl.classList.add('hidden');
     uploadForm.classList.remove('hidden');
@@ -715,6 +718,7 @@ uploadForm.addEventListener('submit', async (event) => {
       blob: encryptedBlob,
       originalName: encryptedName,
       statusPrefix,
+      allowReceiverDelete,
     });
 
     document.getElementById('download-link').href = payload.downloadUrl;
