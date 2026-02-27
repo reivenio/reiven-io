@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Reiven.io Download</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="container">
+      <h1>Reiven.io Download</h1>
+      <p class="muted">Quantum resistant encrypted file sharing for the masses</p>
+      <p id="file-meta" class="muted">Loading file info...</p>
+
+      <form id="download-form" class="card">
+        <label>
+          Password
+          <input type="password" id="password-input" required />
+        </label>
+
+        <button type="submit" id="download-btn">Download & Decrypt</button>
+      </form>
+
+      <section id="status" class="card hidden"></section>
+
+      <section id="slow-warning" class="card warning hidden">
+        Criptographic operations are slow on your device. Make sure Javascript JIT is enabled in your browser for this website!
+      </section>
+    </main>
+
+    <script src="/download.js" defer></script>
+  </body>
+</html>

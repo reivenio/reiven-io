@@ -1,0 +1,17 @@
+{
+  "name": "reiven-cli",
+  "version": "0.1.0",
+  "description": "CLI for downloading and decrypting files from reiven.io",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "reiven": "./bin/reiven.mjs"
+  },
+  "scripts": {
+    "start": "node ./bin/reiven.mjs --help"
+  },
+  "dependencies": {
+    "@noble/post-quantum": "^0.5.4",
+    "hash-wasm": "^4.12.0"
+  }
+}

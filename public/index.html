@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Reiven.io</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body class="app-loading">
+    <section id="startup-overlay" class="startup-overlay" aria-live="polite">
+      <div class="startup-content">
+        <h1>Reiven.io</h1>
+        <div class="startup-spinner" aria-hidden="true"></div>
+        <p class="muted">Setting up local encryption....</p>
+      </div>
+    </section>
+
+    <main class="container">
+      <h1>Reiven.io</h1>
+      <p class="muted">Quantum resistant encrypted file sharing for the masses</p>
+
+      <div class="tabs card" role="tablist" aria-label="Main sections">
+        <button id="tab-share" class="tab-btn active" type="button" role="tab" aria-selected="true">Share</button>
+        <button id="tab-download" class="tab-btn" type="button" role="tab" aria-selected="false">Download</button>
+        <button id="tab-cli" class="tab-btn" type="button" role="tab" aria-selected="false">CLI</button>
+      </div>
+
+      <section id="panel-share" class="tab-panel">
+        <form id="upload-form" class="card">
+          <label>
+            Select file
+            <input type="file" id="file-input" required />
+          </label>
+
+          <label>
+            Password
+            <input type="password" id="password-input" minlength="6" required />
+          </label>
+
+          <section class="security-card">
+            <div class="security-head">
+              <strong>Security profile: Hardened (fixed)</strong>
+              <span id="benchmark-status" class="muted">Running browser benchmark...</span>
+            </div>
+            <p id="security-estimate" class="muted">Estimated encryption time on your device: calculating...</p>
+            <p id="security-details" class="muted">Encryption details are loading...</p>
+            <p id="bruteforce-estimate" class="muted">Brute-force estimate will appear here.</p>
+          </section>
+
+          <button type="submit" id="upload-btn">Encrypt & Upload</button>
+        </form>
+
+        <section id="status" class="card hidden"></section>
+
+        <section id="links" class="card hidden">
+          <h2>Share Details</h2>
+          <div class="result-row">
+            <p><strong>Code:</strong> <span id="access-code"></span></p>
+            <button id="copy-code-btn" type="button" class="copy-btn">Copy</button>
+          </div>
+          <div class="result-row">
+            <p><strong>Download:</strong> <a id="download-link" href="#"></a></p>
+            <button id="copy-download-btn" type="button" class="copy-btn">Copy</button>
+          </div>
+          <div class="result-row">
+            <p><strong>Delete:</strong> <a id="delete-link" href="#"></a></p>
+            <button id="copy-delete-btn" type="button" class="copy-btn">Copy</button>
+          </div>
+          <p class="muted">Share the download URL/code and password separately.</p>
+        </section>
+      </section>
+
+      <section id="panel-download" class="tab-panel hidden">
+        <form id="code-download-form" class="card">
+          <label>
+            File code
+            <input type="text" id="code-input" placeholder="12-34-56-78" required />
+            <small class="muted">Enter the 8-digit code (dashes optional).</small>
+          </label>
+          <button type="submit">Open Download</button>
+        </form>
+
+        <section id="code-status" class="card hidden"></section>
+      </section>
+
+      <section id="panel-cli" class="tab-panel hidden">
+        <section class="card">
+          <h2>Reiven CLI</h2>
+          <p class="muted">Install and use the terminal client to upload or download encrypted files.</p>
+
+          <div class="cli-note">
+            <strong>Info</strong>
+            <span>Use the same password rules as the web flow. CLI prompts mask password input.</span>
+          </div>
+
+          <div class="cli-code-wrap">
+            <div class="cli-code-head">Install</div>
+            <pre class="cli-code"><code># From the project root:
+cd reiven-cli
+npm install
+npm link
+
+# Verify command:
+reiven --help</code></pre>
+          </div>
+
+          <div class="cli-code-wrap">
+            <div class="cli-code-head">Upload</div>
+            <pre class="cli-code"><code># Upload a file (prompts for password):
+reiven put secret.pdf
+
+Password: *********
+
+Access code: *** 80-94-86-60 ***
+Download URL: https://reiven.io/download.html?id=b05b053a745aed1dfb
+Delete URL: https://reiven.io/delete/b05b053a745aed1dfb/d8b97cbd72640936c9800b3289269f6f7274c7d631d7af6d
+Expires at: 2026-02-27T07:02:58.120Z
+</code></pre>
+          </div>
+
+          <div class="cli-code-wrap">
+            <div class="cli-code-head">Download</div>
+            <pre class="cli-code"><code># Download by access code:
+reiven get 80948660
+
+Password: *********
+
+Saved: /Users/reiven/Documents/secret.pdf
+</code></pre>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script src="/upload.js" defer></script>
+  </body>
+</html>

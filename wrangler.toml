@@ -1,0 +1,29 @@
+name = "reiven-io"
+main = "src/worker.js"
+compatibility_date = "2026-02-15"
+workers_dev = false
+
+[[routes]]
+pattern = "reiven.io/*"
+zone_name = "reiven.io"
+
+[[routes]]
+pattern = "www.reiven.io/*"
+zone_name = "reiven.io"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "reiven-io-db"
+database_id = "26f9c274-42f1-4b2d-9696-bdccafca40ce"
+
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "reiven-io-files"
+
+[vars]
+FILE_TTL_HOURS = "24"
+MAX_FILE_SIZE_MB = "2048"
