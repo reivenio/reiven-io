@@ -20,7 +20,6 @@ const securityEstimateEl = document.getElementById('security-estimate');
 const securityDetailsEl = document.getElementById('security-details');
 const bruteForceEstimateEl = document.getElementById('bruteforce-estimate');
 const passwordInputEl = document.getElementById('password-input');
-const storageModeInputEl = document.getElementById('storage-mode-input');
 const storageNoteEl = document.getElementById('storage-note');
 const tabShareEl = document.getElementById('tab-share');
 const tabDownloadEl = document.getElementById('tab-download');
@@ -32,6 +31,7 @@ const codeDownloadForm = document.getElementById('code-download-form');
 const codeInputEl = document.getElementById('code-input');
 const codeStatusEl = document.getElementById('code-status');
 const startupOverlayEl = document.getElementById('startup-overlay');
+const STORAGE_BACKEND = 'ramdisk';
 
 const worker = new Worker('/crypto-worker.js');
 let nextRequestId = 1;
@@ -281,14 +281,14 @@ const uploadPart = ({ uploadId, partNumber, chunkBlob, onProgress }) => {
   });
 };
 
-const uploadEncryptedBlobMultipart = async ({ blob, originalName, statusPrefix, storageMode }) => {
+const uploadEncryptedBlobMultipart = async ({ blob, originalName, statusPrefix }) => {
   const init = await requestJson('/api/upload/init', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       originalName,
       size: blob.size,
-      storage: storageMode || 'r2',
+      storage: STORAGE_BACKEND,
     }),
   });
 
@@ -392,15 +392,10 @@ const formatCode = (value) => {
 
 
 const updateStorageNote = () => {
-  const mode = storageModeInputEl && storageModeInputEl.value === 'mem' ? 'mem' : 'r2';
   if (!storageNoteEl) {
     return;
   }
-  if (mode === 'mem') {
-    storageNoteEl.textContent = 'Memory-only mode keeps encrypted files in volatile RAM on your memory server. Files can be lost on outage/restart.';
-  } else {
-    storageNoteEl.textContent = 'Standard mode stores encrypted files in Cloudflare R2.';
-  }
+  storageNoteEl.textContent = 'Ramdisk mode keeps encrypted files in volatile RAM on your memory server. Files can be lost on outage/restart.';
 };
 
 const setActiveTab = (tab) => {
@@ -634,7 +629,6 @@ passwordInputEl.addEventListener('input', updateBruteForceEstimate);
 tabShareEl.addEventListener('click', () => setActiveTab('share'));
 tabDownloadEl.addEventListener('click', () => setActiveTab('download'));
 tabCliEl.addEventListener('click', () => setActiveTab('cli'));
-storageModeInputEl.addEventListener('change', updateStorageNote);
 codeInputEl.addEventListener('input', () => {
   const digits = String(codeInputEl.value || '').replace(/\D/g, '').slice(0, 8);
   const groups = digits.match(/.{1,2}/g);
@@ -662,7 +656,6 @@ uploadForm.addEventListener('submit', async (event) => {
   try {
     const pim = getDefaultPim();
     const securityLevel = getDefaultSecurityLevel();
-    const storageMode = storageModeInputEl && storageModeInputEl.value === 'mem' ? 'mem' : 'r2';
     uploadBtn.disabled = true;
     linksEl.classList.add('hidden');
     uploadForm.classList.remove('hidden');
@@ -707,7 +700,6 @@ uploadForm.addEventListener('submit', async (event) => {
       blob: encryptedBlob,
       originalName: encryptedName,
       statusPrefix,
-      storageMode,
     });
 
     document.getElementById('download-link').href = payload.downloadUrl;

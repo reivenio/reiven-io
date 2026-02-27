@@ -39,11 +39,8 @@
 
           <label>
             Storage backend
-            <select id="storage-mode-input">
-              <option value="r2" selected>Standard (Cloudflare R2)</option>
-              <option value="mem">Memory only (volatile)</option>
-            </select>
-            <small id="storage-note" class="muted">Standard mode stores encrypted files in Cloudflare R2.</small>
+            <input type="text" value="Ramdisk (volatile memory)" readonly />
+            <small id="storage-note" class="muted">Ramdisk mode keeps encrypted files in volatile RAM on your memory server. Files can be lost on outage/restart.</small>
           </label>
 
           <section class="security-card">

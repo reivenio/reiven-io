@@ -3,8 +3,9 @@ import { ENCRYPTION_CONFIG } from '../shared/encryption-config.mjs';
 const DEFAULT_TTL_HOURS = 24;
 const DEFAULT_MAX_FILE_SIZE_MB = 2048;
 const DEFAULT_PART_SIZE_BYTES = 50 * 1024 * 1024;
+const STORAGE_RAMDISK = "ramdisk";
 const STORAGE_R2 = "r2";
-const STORAGE_MEM = "mem";
+const STORAGE_MEM_LEGACY = "mem";
 
 const json = (body, init = {}) => new Response(JSON.stringify(body), {
   headers: {
@@ -45,13 +46,28 @@ const parseEnvNumber = (value, fallback) => {
 };
 
 const parseStorageMode = (value) => {
-  if (String(value || "").toLowerCase() === STORAGE_MEM) {
-    return STORAGE_MEM;
+  const mode = String(value || "").trim().toLowerCase();
+  if (mode === STORAGE_RAMDISK || mode === STORAGE_MEM_LEGACY) {
+    return STORAGE_RAMDISK;
   }
-  return STORAGE_R2;
+  if (mode === STORAGE_R2) {
+    return STORAGE_R2;
+  }
+  return STORAGE_RAMDISK;
 };
 
-const isMemObjectKey = (value) => String(value || "").startsWith("mem:");
+const parseDeploymentStorageBackend = (env) => {
+  const value = String(env.STORAGE_BACKEND || "").trim().toLowerCase();
+  if (value === STORAGE_R2) {
+    return STORAGE_R2;
+  }
+  return STORAGE_RAMDISK;
+};
+
+const isRamdiskObjectKey = (value) => {
+  const objectKey = String(value || "");
+  return objectKey.startsWith("ramdisk:") || objectKey.startsWith("mem:");
+};
 
 const getMemBaseUrl = (env) => {
   const raw = String(env.MEM_STORAGE_BASE_URL || "").trim();
@@ -122,7 +138,7 @@ const logApi = (request, message, extra = {}) => {
 };
 
 const deleteFileRecord = async (env, row) => {
-  const deleteBlobPromise = isMemObjectKey(row.object_key)
+  const deleteBlobPromise = isRamdiskObjectKey(row.object_key)
     ? memFetch(env, `/api/file/${encodeURIComponent(row.id)}`, { method: 'DELETE' })
     : env.FILES.delete(row.object_key);
 
@@ -214,7 +230,11 @@ const handleUploadInit = async (request, env) => {
   }
 
   const expectedSize = Number(body.size || 0);
-  const storageMode = parseStorageMode(body.storage);
+  const requestedStorageMode = parseStorageMode(body.storage);
+  const deploymentStorageBackend = parseDeploymentStorageBackend(env);
+  const storageMode = deploymentStorageBackend === STORAGE_RAMDISK
+    ? STORAGE_RAMDISK
+    : requestedStorageMode;
   const originalNameHeader = String(body.originalName || '').trim();
   const originalName = (originalNameHeader || 'encrypted.bin').slice(0, 255);
 
@@ -230,7 +250,7 @@ const handleUploadInit = async (request, env) => {
 
   const fileId = randomId(9);
   const deleteToken = randomId(24);
-  const objectKey = storageMode === STORAGE_MEM ? `mem:${fileId}` : `${fileId}.bin`;
+  const objectKey = storageMode === STORAGE_RAMDISK ? `ramdisk:${fileId}` : `${fileId}.bin`;
   const ttlHours = parseEnvNumber(env.FILE_TTL_HOURS, DEFAULT_TTL_HOURS);
   const createdAt = nowIso();
   const expiresAt = addHoursIso(ttlHours);
@@ -238,7 +258,7 @@ const handleUploadInit = async (request, env) => {
   let uploadId = '';
   let partSizeBytes = DEFAULT_PART_SIZE_BYTES;
 
-  if (storageMode === STORAGE_MEM) {
+  if (storageMode === STORAGE_RAMDISK) {
     const memInitResponse = await memFetch(env, '/api/upload/init', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -306,7 +326,7 @@ const handleUploadPart = async (request, env) => {
     return json({ error: 'Upload session not found' }, { status: 404 });
   }
 
-  if (isMemObjectKey(uploadRow.object_key)) {
+  if (isRamdiskObjectKey(uploadRow.object_key)) {
     const memPartResponse = await memFetch(env, `/api/upload/part?uploadId=${encodeURIComponent(uploadId)}&partNumber=${partNumber}`, {
       method: 'POST',
       headers: { 'content-type': 'application/octet-stream' },
@@ -364,7 +384,7 @@ const handleUploadComplete = async (request, env) => {
     return json({ error: 'No valid parts provided' }, { status: 400 });
   }
 
-  if (isMemObjectKey(uploadRow.object_key)) {
+  if (isRamdiskObjectKey(uploadRow.object_key)) {
     const memCompleteResponse = await memFetch(env, '/api/upload/complete', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -420,7 +440,7 @@ const handleUploadAbort = async (request, env) => {
   }
 
   try {
-    if (isMemObjectKey(uploadRow.object_key)) {
+    if (isRamdiskObjectKey(uploadRow.object_key)) {
       await memFetch(env, '/api/upload/abort', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -524,7 +544,7 @@ const handleDownload = async (request, env, id) => {
     isRangeRequest = true;
   }
 
-  if (isMemObjectKey(row.object_key)) {
+  if (isRamdiskObjectKey(row.object_key)) {
     const headers = new Headers();
     if (rangeHeader) {
       headers.set('range', rangeHeader);
