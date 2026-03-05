@@ -43,7 +43,7 @@ const ENCRYPTION_TYPE_PARANOID = 'paranoid';
 const CONTENT_TYPE_FILE = 'file';
 const CONTENT_TYPE_NOTE = 'note';
 const encoder = new TextEncoder();
-const MAX_NOTE_CHARS = 50000;
+const MAX_NOTE_BYTES = 10 * 1024 * 1024;
 
 const worker = new Worker('/crypto-worker.js');
 let nextRequestId = 1;
@@ -702,11 +702,11 @@ uploadForm.addEventListener('submit', async (event) => {
       showStatus('Please enter a note.', true);
       return;
     }
-    if (noteText.length > MAX_NOTE_CHARS) {
-      showStatus(`Note is too long (${noteText.length} chars). Limit is ${MAX_NOTE_CHARS}.`, true);
+    payloadBytes = encoder.encode(noteText);
+    if (payloadBytes.length > MAX_NOTE_BYTES) {
+      showStatus(`Note is too large (${Math.round(payloadBytes.length / (1024 * 1024))} MB). Limit is 10 MB.`, true);
       return;
     }
-    payloadBytes = encoder.encode(noteText);
     originalName = 'note.txt';
   } else {
     if (!file) {
