@@ -10,6 +10,7 @@ const receiverDeleteBtn = document.getElementById('receiver-delete-btn');
 const slowWarningEl = document.getElementById('slow-warning');
 const noteCardEl = document.getElementById('note-card');
 const noteOutputEl = document.getElementById('note-output');
+const noteDownloadBtn = document.getElementById('note-download-btn');
 const textDecoder = new TextDecoder();
 let statusDotsTimer = null;
 let slowWarningTimer = null;
@@ -409,6 +410,21 @@ const downloadDecryptedFile = async (id, password, pim) => {
       noteOutputEl.value = '[Unable to decode note text]';
       noteCardEl.classList.remove('hidden');
     }
+    if (noteDownloadBtn) {
+      noteDownloadBtn.classList.remove('hidden');
+      noteDownloadBtn.onclick = () => {
+        const url = URL.createObjectURL(decryptedBlob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      };
+    }
+    showStatus('Note ready. Use Download Note to save a file.');
+    return;
   }
 
   const url = URL.createObjectURL(decryptedBlob);
