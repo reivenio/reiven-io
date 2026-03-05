@@ -151,7 +151,7 @@ const deleteFileRecord = async (env, row) => {
 
 const loadFileRow = async (env, id) => {
   const row = await env.DB
-    .prepare('SELECT f.id, f.object_key, f.original_name, f.size, f.created_at, f.expires_at, f.delete_token, f.download_count, f.allow_receiver_delete, fc.access_code FROM files f LEFT JOIN file_codes fc ON fc.file_id = f.id WHERE f.id = ?1')
+    .prepare('SELECT f.id, f.object_key, f.original_name, f.size, f.created_at, f.expires_at, f.delete_token, f.download_count, f.allow_receiver_delete, f.is_note, fc.access_code FROM files f LEFT JOIN file_codes fc ON fc.file_id = f.id WHERE f.id = ?1')
     .bind(id)
     .first();
 
@@ -169,7 +169,7 @@ const loadFileRow = async (env, id) => {
 
 const loadFileRowByCode = async (env, rawCode) => {
   const row = await env.DB
-    .prepare('SELECT f.id, f.object_key, f.original_name, f.size, f.created_at, f.expires_at, f.delete_token, f.download_count, f.allow_receiver_delete, fc.access_code FROM file_codes fc JOIN files f ON f.id = fc.file_id WHERE fc.access_code = ?1')
+    .prepare('SELECT f.id, f.object_key, f.original_name, f.size, f.created_at, f.expires_at, f.delete_token, f.download_count, f.allow_receiver_delete, f.is_note, fc.access_code FROM file_codes fc JOIN files f ON f.id = fc.file_id WHERE fc.access_code = ?1')
     .bind(rawCode)
     .first();
 
@@ -187,7 +187,7 @@ const loadFileRowByCode = async (env, rawCode) => {
 
 const loadUploadRow = async (env, uploadId) => {
   return env.DB
-    .prepare('SELECT upload_id, file_id, object_key, original_name, created_at, expires_at, delete_token, expected_size, allow_receiver_delete FROM uploads WHERE upload_id = ?1')
+    .prepare('SELECT upload_id, file_id, object_key, original_name, created_at, expires_at, delete_token, expected_size, allow_receiver_delete, is_note FROM uploads WHERE upload_id = ?1')
     .bind(uploadId)
     .first();
 };
@@ -225,6 +225,10 @@ const parseAllowReceiverDelete = (value) => {
   return value === true || value === 1 || value === '1' || String(value || '').toLowerCase() === 'true';
 };
 
+const parseIsNote = (value) => {
+  return value === true || value === 1 || value === '1' || String(value || '').toLowerCase() === 'true';
+};
+
 const handleUploadInit = async (request, env) => {
   logApi(request, 'upload-init-start');
 
@@ -242,6 +246,7 @@ const handleUploadInit = async (request, env) => {
   const originalNameHeader = String(body.originalName || '').trim();
   const originalName = (originalNameHeader || 'encrypted.bin').slice(0, 255);
   const allowReceiverDelete = parseAllowReceiverDelete(body.allowReceiverDelete);
+  const isNote = parseIsNote(body.isNote);
 
   if (!Number.isFinite(expectedSize) || expectedSize <= 0) {
     return json({ error: 'Invalid file size' }, { status: 400 });
@@ -301,12 +306,12 @@ const handleUploadInit = async (request, env) => {
   }
 
   await env.DB.prepare(
-    'INSERT INTO uploads (upload_id, file_id, object_key, original_name, created_at, expires_at, delete_token, expected_size, allow_receiver_delete) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)'
+    'INSERT INTO uploads (upload_id, file_id, object_key, original_name, created_at, expires_at, delete_token, expected_size, allow_receiver_delete, is_note) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)'
   )
-    .bind(uploadId, fileId, objectKey, originalName, createdAt, expiresAt, deleteToken, expectedSize, allowReceiverDelete ? 1 : 0)
+    .bind(uploadId, fileId, objectKey, originalName, createdAt, expiresAt, deleteToken, expectedSize, allowReceiverDelete ? 1 : 0, isNote ? 1 : 0)
     .run();
 
-  logApi(request, 'upload-init-complete', { fileId, uploadId, expectedSize, storageMode, allowReceiverDelete });
+  logApi(request, 'upload-init-complete', { fileId, uploadId, expectedSize, storageMode, allowReceiverDelete, isNote });
   return json({
     uploadId,
     partSizeBytes,
@@ -411,9 +416,9 @@ const handleUploadComplete = async (request, env) => {
   }
 
   await env.DB.prepare(
-    'INSERT INTO files (id, object_key, original_name, size, created_at, expires_at, delete_token, download_count, allow_receiver_delete) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, ?8)'
+    'INSERT INTO files (id, object_key, original_name, size, created_at, expires_at, delete_token, download_count, allow_receiver_delete, is_note) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, ?8, ?9)'
   )
-    .bind(uploadRow.file_id, uploadRow.object_key, uploadRow.original_name, size, uploadRow.created_at, uploadRow.expires_at, uploadRow.delete_token, Number(uploadRow.allow_receiver_delete) ? 1 : 0)
+    .bind(uploadRow.file_id, uploadRow.object_key, uploadRow.original_name, size, uploadRow.created_at, uploadRow.expires_at, uploadRow.delete_token, Number(uploadRow.allow_receiver_delete) ? 1 : 0, Number(uploadRow.is_note) ? 1 : 0)
     .run();
 
   const accessCodeRaw = await assignUniqueAccessCode(env, uploadRow.file_id);
@@ -429,6 +434,7 @@ const handleUploadComplete = async (request, env) => {
     downloadUrl: `${base}/download.html?id=${uploadRow.file_id}`,
     deleteUrl: `${base}/delete/${uploadRow.file_id}/${uploadRow.delete_token}`,
     allowReceiverDelete: Number(uploadRow.allow_receiver_delete) === 1,
+    isNote: Number(uploadRow.is_note) === 1,
     accessCode: formatAccessCode(accessCodeRaw),
   }, { status: 201 });
 };
@@ -480,6 +486,7 @@ const handleFileInfo = async (request, env, id) => {
     downloadCount: row.download_count,
     allowReceiverDelete: Number(row.allow_receiver_delete) === 1,
     deleteUrl: Number(row.allow_receiver_delete) === 1 ? `${getOrigin(request)}/delete/${row.id}/${row.delete_token}` : null,
+    isNote: Number(row.is_note) === 1,
     accessCode: formatAccessCode(row.access_code),
   });
 };
@@ -505,6 +512,7 @@ const handleFileInfoByCode = async (request, env, codeInput) => {
     downloadCount: row.download_count,
     allowReceiverDelete: Number(row.allow_receiver_delete) === 1,
     deleteUrl: Number(row.allow_receiver_delete) === 1 ? `${base}/delete/${row.id}/${row.delete_token}` : null,
+    isNote: Number(row.is_note) === 1,
     accessCode: formatAccessCode(row.access_code),
     downloadUrl: `${base}/download.html?id=${row.id}`,
   });

@@ -23,6 +23,10 @@ const securityProfileLabelEl = document.getElementById('security-profile-label')
 const passwordInputEl = document.getElementById('password-input');
 const encryptionTypeInputEl = document.getElementById('encryption-type-input');
 const allowReceiverDeleteInputEl = document.getElementById('allow-receiver-delete-input');
+const contentTypeInputEl = document.getElementById('content-type-input');
+const fileInputWrapEl = document.getElementById('file-input-wrap');
+const noteInputWrapEl = document.getElementById('note-input-wrap');
+const noteInputEl = document.getElementById('note-input');
 const tabShareEl = document.getElementById('tab-share');
 const tabDownloadEl = document.getElementById('tab-download');
 const tabCliEl = document.getElementById('tab-cli');
@@ -36,6 +40,10 @@ const startupOverlayEl = document.getElementById('startup-overlay');
 const STORAGE_BACKEND = 'ramdisk';
 const ENCRYPTION_TYPE_STANDARD = 'standard';
 const ENCRYPTION_TYPE_PARANOID = 'paranoid';
+const CONTENT_TYPE_FILE = 'file';
+const CONTENT_TYPE_NOTE = 'note';
+const encoder = new TextEncoder();
+const MAX_NOTE_CHARS = 50000;
 
 const worker = new Worker('/crypto-worker.js');
 let nextRequestId = 1;
@@ -299,7 +307,7 @@ const uploadPart = ({ uploadId, partNumber, chunkBlob, onProgress }) => {
   });
 };
 
-const uploadEncryptedBlobMultipart = async ({ blob, originalName, statusPrefix, allowReceiverDelete }) => {
+const uploadEncryptedBlobMultipart = async ({ blob, originalName, statusPrefix, allowReceiverDelete, isNote }) => {
   const init = await requestJson('/api/upload/init', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -308,6 +316,7 @@ const uploadEncryptedBlobMultipart = async ({ blob, originalName, statusPrefix, 
       size: blob.size,
       storage: STORAGE_BACKEND,
       allowReceiverDelete: Boolean(allowReceiverDelete),
+      isNote: Boolean(isNote),
     }),
   });
 
@@ -423,6 +432,23 @@ const setActiveTab = (tab) => {
   panelShareEl.classList.toggle('hidden', !isShare);
   panelDownloadEl.classList.toggle('hidden', !isDownload);
   panelCliEl.classList.toggle('hidden', !isCli);
+};
+
+const setContentType = (value) => {
+  const type = value === CONTENT_TYPE_NOTE ? CONTENT_TYPE_NOTE : CONTENT_TYPE_FILE;
+  if (fileInputWrapEl) {
+    fileInputWrapEl.classList.toggle('hidden', type === CONTENT_TYPE_NOTE);
+  }
+  if (noteInputWrapEl) {
+    noteInputWrapEl.classList.toggle('hidden', type !== CONTENT_TYPE_NOTE);
+  }
+  if (noteInputEl) {
+    noteInputEl.required = type === CONTENT_TYPE_NOTE;
+  }
+  const fileInput = document.getElementById('file-input');
+  if (fileInput) {
+    fileInput.required = type === CONTENT_TYPE_FILE;
+  }
 };
 
 const clampArgonParams = (params) => {
@@ -642,6 +668,11 @@ passwordInputEl.addEventListener('input', updateBruteForceEstimate);
 if (encryptionTypeInputEl) {
   encryptionTypeInputEl.addEventListener('change', updateSecurityEstimate);
 }
+if (contentTypeInputEl) {
+  contentTypeInputEl.addEventListener('change', () => {
+    setContentType(contentTypeInputEl.value);
+  });
+}
 tabShareEl.addEventListener('click', () => setActiveTab('share'));
 tabDownloadEl.addEventListener('click', () => setActiveTab('download'));
 tabCliEl.addEventListener('click', () => setActiveTab('cli'));
@@ -656,12 +687,33 @@ uploadForm.addEventListener('submit', async (event) => {
 
   const fileInput = document.getElementById('file-input');
   const passwordInput = document.getElementById('password-input');
-  const file = fileInput.files?.[0];
+  const file = fileInput ? fileInput.files?.[0] : null;
   const password = passwordInput.value;
 
-  if (!file) {
-    showStatus('Please select a file.', true);
-    return;
+  const contentType = contentTypeInputEl && contentTypeInputEl.value === CONTENT_TYPE_NOTE
+    ? CONTENT_TYPE_NOTE
+    : CONTENT_TYPE_FILE;
+
+  let originalName = 'encrypted.bin';
+  let payloadBytes = null;
+  if (contentType === CONTENT_TYPE_NOTE) {
+    const noteText = String(noteInputEl?.value || '').trimEnd();
+    if (!noteText) {
+      showStatus('Please enter a note.', true);
+      return;
+    }
+    if (noteText.length > MAX_NOTE_CHARS) {
+      showStatus(`Note is too long (${noteText.length} chars). Limit is ${MAX_NOTE_CHARS}.`, true);
+      return;
+    }
+    payloadBytes = encoder.encode(noteText);
+    originalName = 'note.txt';
+  } else {
+    if (!file) {
+      showStatus('Please select a file.', true);
+      return;
+    }
+    originalName = file.name;
   }
 
   if (!password) {
@@ -682,8 +734,14 @@ uploadForm.addEventListener('submit', async (event) => {
       calibrationProfile = await getCalibrationProfile();
     }
 
-    showStepStatus('Reading file in browser');
-    const fileBuffer = await file.arrayBuffer();
+    if (contentType === CONTENT_TYPE_NOTE) {
+      showStepStatus('Preparing note');
+    } else {
+      showStepStatus('Reading file in browser');
+    }
+    const fileBuffer = contentType === CONTENT_TYPE_NOTE
+      ? payloadBytes.buffer
+      : await file.arrayBuffer();
     const encryptedResult = await callWorker(
       'encrypt',
       {
@@ -692,7 +750,7 @@ uploadForm.addEventListener('submit', async (event) => {
         pim,
         encryptionType,
         baseParams: calibrationProfile.params,
-        originalName: file.name,
+        originalName,
       },
       [fileBuffer],
       {
@@ -719,6 +777,7 @@ uploadForm.addEventListener('submit', async (event) => {
       originalName: encryptedName,
       statusPrefix,
       allowReceiverDelete,
+      isNote: contentType === CONTENT_TYPE_NOTE,
     });
 
     document.getElementById('download-link').href = payload.downloadUrl;
@@ -802,6 +861,7 @@ const initializeApp = async () => {
   if (encryptionTypeInputEl) {
     encryptionTypeInputEl.value = getDefaultEncryptionType();
   }
+  setContentType(contentTypeInputEl?.value || CONTENT_TYPE_FILE);
   initializeSecurityControls();
 };
 

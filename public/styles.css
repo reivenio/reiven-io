@@ -178,6 +178,7 @@ small {
 input[type='file'],
 input[type='password'],
 input[type='number'],
+textarea,
 select {
 
   display: block;

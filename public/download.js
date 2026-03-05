@@ -8,8 +8,12 @@ const downloadForm = document.getElementById('download-form');
 const downloadBtn = document.getElementById('download-btn');
 const receiverDeleteBtn = document.getElementById('receiver-delete-btn');
 const slowWarningEl = document.getElementById('slow-warning');
+const noteCardEl = document.getElementById('note-card');
+const noteOutputEl = document.getElementById('note-output');
+const textDecoder = new TextDecoder();
 let statusDotsTimer = null;
 let slowWarningTimer = null;
+let fileMeta = null;
 
 const worker = new Worker('/crypto-worker.js');
 let nextRequestId = 1;
@@ -266,6 +270,7 @@ const loadInfo = async (id) => {
       throw new Error(payload.error || 'File unavailable');
     }
 
+    fileMeta = payload;
     fileMetaEl.textContent = `File ID: ${payload.id} | Size: ${payload.size} bytes | Expires: ${new Date(payload.expiresAt).toLocaleString()}`;
     if (receiverDeleteBtn) {
       const allowReceiverDelete = payload && payload.allowReceiverDelete === true && typeof payload.deleteUrl === 'string' && payload.deleteUrl;
@@ -281,9 +286,13 @@ const loadInfo = async (id) => {
   } catch (error) {
     fileMetaEl.textContent = error.message;
     downloadBtn.disabled = true;
+    fileMeta = null;
     if (receiverDeleteBtn) {
       receiverDeleteBtn.classList.add('hidden');
       receiverDeleteBtn.onclick = null;
+    }
+    if (noteCardEl) {
+      noteCardEl.classList.add('hidden');
     }
   }
 };
@@ -389,8 +398,18 @@ const downloadDecryptedFile = async (id, password, pim) => {
   );
 
   const decryptedBlob = new Blob([decrypted.plaintextBuffer], { type: 'application/octet-stream' });
-
   const filename = (verified && verified.originalName) ? verified.originalName : `decrypted-${id}`;
+  const isNote = Boolean(fileMeta && fileMeta.isNote);
+
+  if (isNote && noteOutputEl && noteCardEl) {
+    try {
+      noteOutputEl.value = textDecoder.decode(decrypted.plaintextBuffer);
+      noteCardEl.classList.remove('hidden');
+    } catch {
+      noteOutputEl.value = '[Unable to decode note text]';
+      noteCardEl.classList.remove('hidden');
+    }
+  }
 
   const url = URL.createObjectURL(decryptedBlob);
   const a = document.createElement('a');

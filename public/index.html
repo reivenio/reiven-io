@@ -28,8 +28,21 @@
       <section id="panel-share" class="tab-panel">
         <form id="upload-form" class="card">
           <label>
+            Content type
+            <select id="content-type-input">
+              <option value="file" selected>File</option>
+              <option value="note">Note</option>
+            </select>
+          </label>
+
+          <label id="file-input-wrap">
             Select file
             <input type="file" id="file-input" required />
+          </label>
+
+          <label id="note-input-wrap" class="hidden">
+            Note
+            <textarea id="note-input" rows="6" placeholder="Write your note here..." required></textarea>
           </label>
 
           <label>
