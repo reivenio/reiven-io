@@ -27,6 +27,7 @@ const contentTypeInputEl = document.getElementById('content-type-input');
 const fileInputWrapEl = document.getElementById('file-input-wrap');
 const noteInputWrapEl = document.getElementById('note-input-wrap');
 const noteInputEl = document.getElementById('note-input');
+const noteInputLabelEl = document.getElementById('note-input-label');
 const tabShareEl = document.getElementById('tab-share');
 const tabDownloadEl = document.getElementById('tab-download');
 const tabCliEl = document.getElementById('tab-cli');
@@ -439,11 +440,18 @@ const setContentType = (value) => {
   if (fileInputWrapEl) {
     fileInputWrapEl.classList.toggle('hidden', type === CONTENT_TYPE_NOTE);
   }
-  if (noteInputWrapEl) {
-    noteInputWrapEl.classList.toggle('hidden', type !== CONTENT_TYPE_NOTE);
-  }
   if (noteInputEl) {
     noteInputEl.required = type === CONTENT_TYPE_NOTE;
+    noteInputEl.disabled = type !== CONTENT_TYPE_NOTE;
+    noteInputEl.placeholder = type === CONTENT_TYPE_NOTE
+      ? '// write the encrypted note here...'
+      : '// add operational notes here...';
+  }
+  if (noteInputLabelEl) {
+    noteInputLabelEl.textContent = type === CONTENT_TYPE_NOTE ? 'Note' : 'Packet Notes';
+  }
+  if (noteInputWrapEl) {
+    noteInputWrapEl.classList.toggle('note-mode', type === CONTENT_TYPE_NOTE);
   }
   const fileInput = document.getElementById('file-input');
   if (fileInput) {

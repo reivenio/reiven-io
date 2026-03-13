@@ -9,78 +9,88 @@
   <body class="app-loading">
     <section id="startup-overlay" class="startup-overlay" aria-live="polite">
       <div class="startup-content">
-        <h1>Reiven.io</h1>
+        <h1>reiven.io</h1>
         <div class="startup-spinner" aria-hidden="true"></div>
-        <p class="muted">Setting up local encryption....</p>
+        <p class="muted">Initializing encrypted workspace...</p>
       </div>
     </section>
 
     <main class="container">
-      <h1>Reiven.io</h1>
-      <p class="muted">Quantum resistant encrypted file sharing for the masses</p>
-
-      <div class="tabs card" role="tablist" aria-label="Main sections">
-        <button id="tab-share" class="tab-btn active" type="button" role="tab" aria-selected="true">Share</button>
-        <button id="tab-download" class="tab-btn" type="button" role="tab" aria-selected="false">Download</button>
-        <button id="tab-cli" class="tab-btn" type="button" role="tab" aria-selected="false">CLI</button>
-      </div>
+      <header class="topbar">
+        <h1 class="brand">reiven.io</h1>
+        <div class="tabs" role="tablist" aria-label="Main sections">
+          <button id="tab-share" class="tab-btn active" type="button" role="tab" aria-selected="true">Share</button>
+          <button id="tab-download" class="tab-btn" type="button" role="tab" aria-selected="false">Download</button>
+          <button id="tab-cli" class="tab-btn" type="button" role="tab" aria-selected="false">CLI</button>
+        </div>
+      </header>
 
       <section id="panel-share" class="tab-panel">
-        <form id="upload-form" class="card">
-          <label>
-            Content type
-            <select id="content-type-input">
-              <option value="file" selected>File</option>
-              <option value="note">Note</option>
-            </select>
-          </label>
+        <form id="upload-form" class="workspace-card share-layout">
+          <section class="control-column">
+            <label>
+              Content Type
+              <select id="content-type-input">
+                <option value="file" selected>File</option>
+                <option value="note">Note</option>
+              </select>
+            </label>
 
-          <label id="file-input-wrap">
-            Select file
-            <input type="file" id="file-input" required />
-          </label>
+            <label id="file-input-wrap">
+              Select File
+              <div class="file-picker-row">
+                <input type="file" id="file-input" required />
+              </div>
+              <small class="muted">No file chosen</small>
+            </label>
 
-          <label id="note-input-wrap" class="hidden">
-            Note
-            <textarea id="note-input" rows="6" placeholder="Write your note here..." required></textarea>
-          </label>
+            <label>
+              Encryption Key
+              <input type="password" id="password-input" minlength="6" required />
+              <small class="muted">Min 32 chars.</small>
+            </label>
 
-          <label>
-            Password
-            <input type="password" id="password-input" minlength="6" required />
-          </label>
+            <label>
+              Encryption Profile
+              <select id="encryption-type-input">
+                <option value="standard" selected>Standard</option>
+                <option value="paranoid">Paranoid</option>
+              </select>
+              <small class="muted">Paranoid increases Argon2 work factor and can be much slower on weak devices.</small>
+            </label>
 
-          <label>
-            Encryption profile
-            <select id="encryption-type-input">
-              <option value="standard" selected>Standard</option>
-              <option value="paranoid">Paranoid</option>
-            </select>
-            <small class="muted">Paranoid increases Argon2 work factor and can be much slower on weak devices.</small>
-          </label>
+            <label class="toggle-row">
+              <input type="checkbox" id="allow-receiver-delete-input" />
+              <span class="toggle-copy">
+                <strong>Allow receiver to delete</strong>
+                <small class="muted">If enabled, receiver sees a Delete File button on the download page.</small>
+              </span>
+            </label>
 
-          <label>
-            <input type="checkbox" id="allow-receiver-delete-input" />
-            Allow receiver to delete
-            <small class="muted">If enabled, receiver sees a Delete File button on the download page.</small>
-          </label>
-
-          <section class="security-card">
-            <div class="security-head">
-              <strong id="security-profile-label">Security profile: Standard</strong>
-              <span id="benchmark-status" class="muted">Running browser benchmark...</span>
-            </div>
-            <p id="security-estimate" class="muted">Estimated encryption time on your device: calculating...</p>
-            <p id="security-details" class="muted">Encryption details are loading...</p>
-            <p id="bruteforce-estimate" class="muted">Brute-force estimate will appear here.</p>
+            <button type="submit" id="upload-btn">Encrypt & Upload</button>
           </section>
 
-          <button type="submit" id="upload-btn">Encrypt & Upload</button>
+          <section class="insight-column">
+            <label id="note-input-wrap" class="note-panel">
+              <span id="note-input-label">Packet Notes</span>
+              <textarea id="note-input" rows="10" placeholder="// add operational notes here..."></textarea>
+            </label>
+
+            <section class="security-card">
+              <div class="security-head">
+                <strong id="security-profile-label">Security profile: Standard</strong>
+                <span id="benchmark-status" class="muted">Running browser benchmark...</span>
+              </div>
+              <p id="security-estimate" class="muted">Estimated encryption time on your device: calculating...</p>
+              <p id="security-details" class="muted">Encryption details are loading...</p>
+              <p id="bruteforce-estimate" class="muted">Brute-force estimate will appear here.</p>
+            </section>
+          </section>
         </form>
 
         <section id="status" class="card hidden"></section>
 
-        <section id="links" class="card hidden">
+        <section id="links" class="workspace-card hidden">
           <h2>Share Details</h2>
           <div class="result-row">
             <p><strong>Code:</strong> <span id="access-code"></span></p>
@@ -99,9 +109,9 @@
       </section>
 
       <section id="panel-download" class="tab-panel hidden">
-        <form id="code-download-form" class="card">
+        <form id="code-download-form" class="workspace-card simple-panel">
           <label>
-            File code
+            File Code
             <input type="text" id="code-input" placeholder="12-34-56-78" required />
             <small class="muted">Enter the 8-digit code (dashes optional).</small>
           </label>
@@ -112,7 +122,7 @@
       </section>
 
       <section id="panel-cli" class="tab-panel hidden">
-        <section class="card">
+        <section class="workspace-card simple-panel">
           <h2>Reiven CLI</h2>
           <p class="muted">Install and use the terminal client to upload or download encrypted files.</p>
 
@@ -158,6 +168,10 @@ Saved: /Users/reiven/Documents/secret.pdf
           </div>
         </section>
       </section>
+
+      <footer class="footer-note">
+        Server sees only ciphertext · AES-256-GCM + PBKDF2 · No accounts · Zero retention
+      </footer>
     </main>
 
     <script src="/upload.js" defer></script>
