@@ -30,8 +30,6 @@ const noteInputEl = document.getElementById('note-input');
 const noteInputLabelEl = document.getElementById('note-input-label');
 const brandHomeBtnEl = document.getElementById('brand-home-btn');
 const heroShareBtnEl = document.getElementById('hero-share-btn');
-const heroDownloadBtnEl = document.getElementById('hero-download-btn');
-const tabHomeEl = document.getElementById('tab-home');
 const tabShareEl = document.getElementById('tab-share');
 const tabDownloadEl = document.getElementById('tab-download');
 const tabCliEl = document.getElementById('tab-cli');
@@ -426,20 +424,23 @@ const formatCode = (value) => {
   return normalized ? normalized.match(/.{1,2}/g).join('-') : null;
 };
 
-
 const setActiveTab = (tab) => {
   const isHome = tab === 'home';
   const isShare = tab === 'share';
   const isDownload = tab === 'download';
   const isCli = tab === 'cli';
-  tabHomeEl.classList.toggle('active', isHome);
-  tabShareEl.classList.toggle('active', isShare);
-  tabDownloadEl.classList.toggle('active', isDownload);
-  tabCliEl.classList.toggle('active', isCli);
-  tabHomeEl.setAttribute('aria-selected', String(isHome));
-  tabShareEl.setAttribute('aria-selected', String(isShare));
-  tabDownloadEl.setAttribute('aria-selected', String(isDownload));
-  tabCliEl.setAttribute('aria-selected', String(isCli));
+  if (tabShareEl) {
+    tabShareEl.classList.toggle('active', isShare);
+    tabShareEl.setAttribute('aria-selected', String(isShare));
+  }
+  if (tabDownloadEl) {
+    tabDownloadEl.classList.toggle('active', isDownload);
+    tabDownloadEl.setAttribute('aria-selected', String(isDownload));
+  }
+  if (tabCliEl) {
+    tabCliEl.classList.toggle('active', isCli);
+    tabCliEl.setAttribute('aria-selected', String(isCli));
+  }
   panelHomeEl.classList.toggle('hidden', !isHome);
   panelShareEl.classList.toggle('hidden', !isShare);
   panelDownloadEl.classList.toggle('hidden', !isDownload);
@@ -467,14 +468,13 @@ const setContentType = (value) => {
   if (noteInputEl) {
     noteInputEl.required = type === CONTENT_TYPE_NOTE;
     noteInputEl.disabled = type !== CONTENT_TYPE_NOTE;
-    noteInputEl.placeholder = type === CONTENT_TYPE_NOTE
-      ? '// write the encrypted note here...'
-      : '// add operational notes here...';
+    noteInputEl.placeholder = '// add operational notes here...';
   }
   if (noteInputLabelEl) {
-    noteInputLabelEl.textContent = type === CONTENT_TYPE_NOTE ? 'Note' : 'Packet Notes';
+    noteInputLabelEl.textContent = 'packet notes';
   }
   if (noteInputWrapEl) {
+    noteInputWrapEl.classList.toggle('hidden', type !== CONTENT_TYPE_NOTE);
     noteInputWrapEl.classList.toggle('note-mode', type === CONTENT_TYPE_NOTE);
   }
   const fileInput = document.getElementById('file-input');
@@ -715,12 +715,11 @@ if (brandHomeBtnEl) {
   brandHomeBtnEl.addEventListener('click', () => setActiveTab('home'));
 }
 if (heroShareBtnEl) {
-  heroShareBtnEl.addEventListener('click', () => setActiveTab('share'));
+  heroShareBtnEl.addEventListener('click', () => {
+    setContentType(CONTENT_TYPE_NOTE);
+    setActiveTab('share');
+  });
 }
-if (heroDownloadBtnEl) {
-  heroDownloadBtnEl.addEventListener('click', () => setActiveTab('download'));
-}
-tabHomeEl.addEventListener('click', () => setActiveTab('home'));
 tabShareEl.addEventListener('click', () => setActiveTab('share'));
 tabDownloadEl.addEventListener('click', () => setActiveTab('download'));
 tabCliEl.addEventListener('click', () => setActiveTab('cli'));
