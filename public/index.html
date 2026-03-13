@@ -15,120 +15,190 @@
       </div>
     </section>
 
-    <main class="container">
-      <header class="topbar">
-        <h1 class="brand">reiven.io</h1>
-        <div class="tabs" role="tablist" aria-label="Main sections">
-          <button id="tab-share" class="tab-btn active" type="button" role="tab" aria-selected="true">Share</button>
-          <button id="tab-download" class="tab-btn" type="button" role="tab" aria-selected="false">Download</button>
-          <button id="tab-cli" class="tab-btn" type="button" role="tab" aria-selected="false">CLI</button>
-        </div>
+    <main class="site-shell">
+      <header class="site-header">
+        <button id="brand-home-btn" class="brand-mark" type="button">reiven.io</button>
+        <nav class="site-nav" aria-label="Primary">
+          <button id="tab-home" class="tab-btn active" type="button" aria-selected="true">Home</button>
+          <button id="tab-share" class="tab-btn" type="button" aria-selected="false">Share</button>
+          <button id="tab-download" class="tab-btn" type="button" aria-selected="false">Download</button>
+          <button id="tab-cli" class="tab-btn" type="button" aria-selected="false">CLI</button>
+        </nav>
       </header>
 
-      <section id="panel-share" class="tab-panel">
-        <form id="upload-form" class="workspace-card share-layout">
-          <section class="control-column">
-            <label>
-              Content Type
-              <select id="content-type-input">
-                <option value="file" selected>File</option>
-                <option value="note">Note</option>
-              </select>
-            </label>
-
-            <label id="file-input-wrap">
-              Select File
-              <div class="file-picker-row">
-                <input type="file" id="file-input" required />
+      <section id="panel-home" class="page-panel">
+        <section class="hero-frame">
+          <div class="hero-copy">
+            <p class="eyebrow">file sharing for the masses</p>
+            <h1 class="hero-title">Quantum resistant encrypted</h1>
+            <p class="hero-body">
+              Encrypted, self-destructing notes and E2EE chat. One view, then gone. No accounts. No logs.
+            </p>
+            <div class="hero-actions">
+              <button id="hero-share-btn" class="primary-btn" type="button">Share now</button>
+              <button id="hero-download-btn" class="ghost-btn" type="button">Open download</button>
+            </div>
+          </div>
+          <div class="hero-visual" aria-hidden="true">
+            <div class="hero-window">
+              <div class="hero-window-head">
+                <span></span>
+                <span></span>
+                <span></span>
               </div>
-              <small class="muted">No file chosen</small>
-            </label>
-
-            <label>
-              Encryption Key
-              <input type="password" id="password-input" minlength="6" required />
-              <small class="muted">Min 32 chars.</small>
-            </label>
-
-            <label>
-              Encryption Profile
-              <select id="encryption-type-input">
-                <option value="standard" selected>Standard</option>
-                <option value="paranoid">Paranoid</option>
-              </select>
-              <small class="muted">Paranoid increases Argon2 work factor and can be much slower on weak devices.</small>
-            </label>
-
-            <label class="toggle-row">
-              <input type="checkbox" id="allow-receiver-delete-input" />
-              <span class="toggle-copy">
-                <strong>Allow receiver to delete</strong>
-                <small class="muted">If enabled, receiver sees a Delete File button on the download page.</small>
-              </span>
-            </label>
-
-            <button type="submit" id="upload-btn">Encrypt & Upload</button>
-          </section>
-
-          <section class="insight-column">
-            <label id="note-input-wrap" class="note-panel">
-              <span id="note-input-label">Packet Notes</span>
-              <textarea id="note-input" rows="10" placeholder="// add operational notes here..."></textarea>
-            </label>
-
-            <section class="security-card">
-              <div class="security-head">
-                <strong id="security-profile-label">Security profile: Standard</strong>
-                <span id="benchmark-status" class="muted">Running browser benchmark...</span>
+              <div class="hero-grid">
+                <div class="hero-card hero-card-large"></div>
+                <div class="hero-card"></div>
+                <div class="hero-card"></div>
+                <div class="hero-card hero-card-wide"></div>
               </div>
-              <p id="security-estimate" class="muted">Estimated encryption time on your device: calculating...</p>
-              <p id="security-details" class="muted">Encryption details are loading...</p>
-              <p id="bruteforce-estimate" class="muted">Brute-force estimate will appear here.</p>
-            </section>
-          </section>
-        </form>
+            </div>
+          </div>
+        </section>
 
-        <section id="status" class="card hidden"></section>
-
-        <section id="links" class="workspace-card hidden">
-          <h2>Share Details</h2>
-          <div class="result-row">
-            <p><strong>Code:</strong> <span id="access-code"></span></p>
-            <button id="copy-code-btn" type="button" class="copy-btn">Copy</button>
+        <section class="how-frame">
+          <div class="section-heading">
+            <span>How it works</span>
+            <p>Each share is derived in-browser, wrapped with post-quantum armor, and written to volatile storage.</p>
           </div>
-          <div class="result-row">
-            <p><strong>Download:</strong> <a id="download-link" href="#"></a></p>
-            <button id="copy-download-btn" type="button" class="copy-btn">Copy</button>
+          <div class="step-grid">
+            <article class="step-card">
+              <span class="step-index">01</span>
+              <h2>Derive the master key</h2>
+              <p>Password material never leaves the browser. Argon2id burns memory and time before any payload is sealed.</p>
+            </article>
+            <article class="step-card">
+              <span class="step-index">02</span>
+              <h2>Generate post-quantum armor</h2>
+              <p>A deterministic ML-KEM-768 keypair is derived locally and used to wrap a random 256-bit data key.</p>
+            </article>
+            <article class="step-card">
+              <span class="step-index">03</span>
+              <h2>Seal the payload</h2>
+              <p>The encrypted envelope lands on the server as ciphertext only, with one-view semantics and zero retention.</p>
+            </article>
           </div>
-          <div class="result-row">
-            <p><strong>Delete:</strong> <a id="delete-link" href="#"></a></p>
-            <button id="copy-delete-btn" type="button" class="copy-btn">Copy</button>
-          </div>
-          <p class="muted">Share the download URL/code and password separately.</p>
+          <p class="spec-line">Specs: PIM=100, Iterations=4, Memory=64MB, Parallelism=1.</p>
         </section>
       </section>
 
-      <section id="panel-download" class="tab-panel hidden">
-        <form id="code-download-form" class="workspace-card simple-panel">
-          <label>
-            File Code
-            <input type="text" id="code-input" placeholder="12-34-56-78" required />
-            <small class="muted">Enter the 8-digit code (dashes optional).</small>
-          </label>
-          <button type="submit">Open Download</button>
+      <section id="panel-share" class="page-panel hidden">
+        <form id="upload-form" class="share-page">
+          <section class="share-main-frame">
+            <div class="share-left">
+              <div class="share-heading">
+                <p class="eyebrow">Secure transfer</p>
+                <h2 class="share-title">share</h2>
+              </div>
+
+              <div class="type-switch" role="tablist" aria-label="Share type">
+                <button id="content-type-file-btn" class="type-option active" type="button" data-type="file" aria-selected="true">File</button>
+                <button id="content-type-note-btn" class="type-option" type="button" data-type="note" aria-selected="false">Note</button>
+              </div>
+              <input id="content-type-input" type="hidden" value="file" />
+
+              <label id="file-input-wrap" class="field-block">
+                <span class="field-label">Select file</span>
+                <input type="file" id="file-input" required />
+                <small class="muted">Choose the payload that will be encrypted in-browser.</small>
+              </label>
+
+              <label class="field-block">
+                <span class="field-label">Encryption key</span>
+                <input type="password" id="password-input" minlength="6" required />
+                <small class="muted">Use a long random passphrase. The password is not sent to the server.</small>
+              </label>
+
+              <label class="field-block">
+                <span class="field-label">Encryption profile</span>
+                <select id="encryption-type-input">
+                  <option value="standard" selected>Standard</option>
+                  <option value="paranoid">Paranoid</option>
+                </select>
+                <small class="muted">Paranoid raises Argon2 cost and is slower on weak devices.</small>
+              </label>
+
+              <label class="toggle-row">
+                <input type="checkbox" id="allow-receiver-delete-input" />
+                <span class="toggle-copy">
+                  <strong>Allow receiver to delete</strong>
+                  <small class="muted">Adds a delete action on the receiver page after decryption access is granted.</small>
+                </span>
+              </label>
+
+              <button type="submit" id="upload-btn" class="primary-btn submit-btn">Encrypt & Upload</button>
+            </div>
+
+            <div class="share-right">
+              <label id="note-input-wrap" class="note-frame">
+                <span id="note-input-label" class="field-label">Packet notes</span>
+                <textarea id="note-input" rows="12" placeholder="// operational notes stay local until encrypted..."></textarea>
+              </label>
+            </div>
+          </section>
+
+          <section class="security-frame">
+            <div class="security-frame-head">
+              <strong id="security-profile-label">Security profile: Standard</strong>
+              <span id="benchmark-status" class="muted">Running browser benchmark...</span>
+            </div>
+            <p id="security-estimate" class="muted">Estimated encryption time on your device: calculating...</p>
+            <p id="security-details" class="muted">Encryption details are loading...</p>
+            <p id="bruteforce-estimate" class="muted">Brute-force estimate will appear here.</p>
+          </section>
         </form>
 
-        <section id="code-status" class="card hidden"></section>
+        <section id="status" class="status-card hidden"></section>
+
+        <section id="links" class="complete-frame hidden">
+          <div class="complete-head">
+            <p class="eyebrow">Share ready</p>
+            <h2>upload complete</h2>
+          </div>
+          <div class="result-row">
+            <p><strong>Code:</strong> <span id="access-code"></span></p>
+            <button id="copy-code-btn" type="button" class="ghost-btn copy-btn">Copy</button>
+          </div>
+          <div class="result-row">
+            <p><strong>Download:</strong> <a id="download-link" href="#"></a></p>
+            <button id="copy-download-btn" type="button" class="ghost-btn copy-btn">Copy</button>
+          </div>
+          <div class="result-row">
+            <p><strong>Delete:</strong> <a id="delete-link" href="#"></a></p>
+            <button id="copy-delete-btn" type="button" class="ghost-btn copy-btn">Copy</button>
+          </div>
+          <p class="muted">Share the password separately from the link or access code.</p>
+        </section>
       </section>
 
-      <section id="panel-cli" class="tab-panel hidden">
-        <section class="workspace-card simple-panel">
-          <h2>Reiven CLI</h2>
-          <p class="muted">Install and use the terminal client to upload or download encrypted files.</p>
+      <section id="panel-download" class="page-panel hidden">
+        <section class="utility-frame">
+          <div class="section-heading">
+            <span>Download</span>
+            <p>Resolve a share with its 8-digit access code and continue to the decrypt flow.</p>
+          </div>
+          <form id="code-download-form" class="utility-form">
+            <label class="field-block">
+              <span class="field-label">File code</span>
+              <input type="text" id="code-input" placeholder="12-34-56-78" required />
+              <small class="muted">Enter the 8-digit code. Dashes are optional.</small>
+            </label>
+            <button type="submit" class="primary-btn">Open download</button>
+          </form>
+        </section>
+        <section id="code-status" class="status-card hidden"></section>
+      </section>
+
+      <section id="panel-cli" class="page-panel hidden">
+        <section class="utility-frame cli-frame">
+          <div class="section-heading">
+            <span>Reiven CLI</span>
+            <p>Use the terminal client for the same encrypted flow without the web UI.</p>
+          </div>
 
           <div class="cli-note">
             <strong>Info</strong>
-            <span>Use the same password rules as the web flow. CLI prompts mask password input.</span>
+            <span>CLI uses the same envelope format and password rules as the browser flow.</span>
           </div>
 
           <div class="cli-code-wrap">
@@ -152,8 +222,7 @@ Password: *********
 Access code: *** 80-94-86-60 ***
 Download URL: https://reiven.io/download.html?id=b05b053a745aed1dfb
 Delete URL: https://reiven.io/delete/b05b053a745aed1dfb/d8b97cbd72640936c9800b3289269f6f7274c7d631d7af6d
-Expires at: 2026-02-27T07:02:58.120Z
-</code></pre>
+Expires at: 2026-02-27T07:02:58.120Z</code></pre>
           </div>
 
           <div class="cli-code-wrap">
@@ -163,8 +232,7 @@ reiven get 80948660
 
 Password: *********
 
-Saved: /Users/reiven/Documents/secret.pdf
-</code></pre>
+Saved: /Users/reiven/Documents/secret.pdf</code></pre>
           </div>
         </section>
       </section>

@@ -28,12 +28,19 @@ const fileInputWrapEl = document.getElementById('file-input-wrap');
 const noteInputWrapEl = document.getElementById('note-input-wrap');
 const noteInputEl = document.getElementById('note-input');
 const noteInputLabelEl = document.getElementById('note-input-label');
+const brandHomeBtnEl = document.getElementById('brand-home-btn');
+const heroShareBtnEl = document.getElementById('hero-share-btn');
+const heroDownloadBtnEl = document.getElementById('hero-download-btn');
+const tabHomeEl = document.getElementById('tab-home');
 const tabShareEl = document.getElementById('tab-share');
 const tabDownloadEl = document.getElementById('tab-download');
 const tabCliEl = document.getElementById('tab-cli');
+const panelHomeEl = document.getElementById('panel-home');
 const panelShareEl = document.getElementById('panel-share');
 const panelDownloadEl = document.getElementById('panel-download');
 const panelCliEl = document.getElementById('panel-cli');
+const contentTypeFileBtnEl = document.getElementById('content-type-file-btn');
+const contentTypeNoteBtnEl = document.getElementById('content-type-note-btn');
 const codeDownloadForm = document.getElementById('code-download-form');
 const codeInputEl = document.getElementById('code-input');
 const codeStatusEl = document.getElementById('code-status');
@@ -421,15 +428,19 @@ const formatCode = (value) => {
 
 
 const setActiveTab = (tab) => {
+  const isHome = tab === 'home';
   const isShare = tab === 'share';
   const isDownload = tab === 'download';
   const isCli = tab === 'cli';
+  tabHomeEl.classList.toggle('active', isHome);
   tabShareEl.classList.toggle('active', isShare);
   tabDownloadEl.classList.toggle('active', isDownload);
   tabCliEl.classList.toggle('active', isCli);
+  tabHomeEl.setAttribute('aria-selected', String(isHome));
   tabShareEl.setAttribute('aria-selected', String(isShare));
   tabDownloadEl.setAttribute('aria-selected', String(isDownload));
   tabCliEl.setAttribute('aria-selected', String(isCli));
+  panelHomeEl.classList.toggle('hidden', !isHome);
   panelShareEl.classList.toggle('hidden', !isShare);
   panelDownloadEl.classList.toggle('hidden', !isDownload);
   panelCliEl.classList.toggle('hidden', !isCli);
@@ -437,6 +448,19 @@ const setActiveTab = (tab) => {
 
 const setContentType = (value) => {
   const type = value === CONTENT_TYPE_NOTE ? CONTENT_TYPE_NOTE : CONTENT_TYPE_FILE;
+  if (contentTypeInputEl) {
+    contentTypeInputEl.value = type;
+  }
+  if (contentTypeFileBtnEl) {
+    const isFile = type === CONTENT_TYPE_FILE;
+    contentTypeFileBtnEl.classList.toggle('active', isFile);
+    contentTypeFileBtnEl.setAttribute('aria-selected', String(isFile));
+  }
+  if (contentTypeNoteBtnEl) {
+    const isNote = type === CONTENT_TYPE_NOTE;
+    contentTypeNoteBtnEl.classList.toggle('active', isNote);
+    contentTypeNoteBtnEl.setAttribute('aria-selected', String(isNote));
+  }
   if (fileInputWrapEl) {
     fileInputWrapEl.classList.toggle('hidden', type === CONTENT_TYPE_NOTE);
   }
@@ -681,6 +705,22 @@ if (contentTypeInputEl) {
     setContentType(contentTypeInputEl.value);
   });
 }
+if (contentTypeFileBtnEl) {
+  contentTypeFileBtnEl.addEventListener('click', () => setContentType(CONTENT_TYPE_FILE));
+}
+if (contentTypeNoteBtnEl) {
+  contentTypeNoteBtnEl.addEventListener('click', () => setContentType(CONTENT_TYPE_NOTE));
+}
+if (brandHomeBtnEl) {
+  brandHomeBtnEl.addEventListener('click', () => setActiveTab('home'));
+}
+if (heroShareBtnEl) {
+  heroShareBtnEl.addEventListener('click', () => setActiveTab('share'));
+}
+if (heroDownloadBtnEl) {
+  heroDownloadBtnEl.addEventListener('click', () => setActiveTab('download'));
+}
+tabHomeEl.addEventListener('click', () => setActiveTab('home'));
 tabShareEl.addEventListener('click', () => setActiveTab('share'));
 tabDownloadEl.addEventListener('click', () => setActiveTab('download'));
 tabCliEl.addEventListener('click', () => setActiveTab('cli'));
