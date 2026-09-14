@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /api/upload/
+Disallow: /api/file/
+Disallow: /delete/
+
+Sitemap: https://reiven.io/sitemap.xml

@@ -1,34 +1,77 @@
 import { ENCRYPTION_CONFIG } from '../shared/encryption-config.mjs';
 
 const DEFAULT_TTL_HOURS = 24;
-const DEFAULT_MAX_FILE_SIZE_MB = 2048;
+const DEFAULT_MAX_FILE_SIZE_MB = 10240;
 const DEFAULT_PART_SIZE_BYTES = 50 * 1024 * 1024;
 const STORAGE_RAMDISK = "ramdisk";
 const STORAGE_R2 = "r2";
 const STORAGE_MEM_LEGACY = "mem";
 
+const BASE_SECURITY_HEADERS = Object.freeze({
+  'x-content-type-options': 'nosniff',
+  'referrer-policy': 'no-referrer',
+  'permissions-policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
+});
+
+const buildContentSecurityPolicy = (scriptNonce = '') => {
+  const scriptSrc = ["'self'", "'wasm-unsafe-eval'"];
+  if (scriptNonce) {
+    scriptSrc.push(`'nonce-${scriptNonce}'`);
+  }
+  return [
+    "default-src 'self'",
+    "base-uri 'none'",
+    "object-src 'none'",
+    "frame-ancestors 'none'",
+    "form-action 'self'",
+    "connect-src 'self'",
+    "img-src 'self' data:",
+    "style-src 'self'",
+    `script-src ${scriptSrc.join(' ')}`,
+    "worker-src 'self'",
+    "upgrade-insecure-requests",
+  ].join('; ');
+};
+
+const withSecurityHeaders = (headers = {}, extraHeaders = {}, csp = buildContentSecurityPolicy()) => {
+  const out = new Headers(headers);
+  const extra = new Headers(extraHeaders || {});
+  extra.forEach((value, key) => {
+    out.set(key, value);
+  });
+  for (const [key, value] of Object.entries(BASE_SECURITY_HEADERS)) {
+    if (!out.has(key)) {
+      out.set(key, value);
+    }
+  }
+  if (csp && !out.has('content-security-policy')) {
+    out.set('content-security-policy', csp);
+  }
+  return out;
+};
+
 const json = (body, init = {}) => new Response(JSON.stringify(body), {
-  headers: {
+  ...init,
+  headers: withSecurityHeaders({
     'content-type': 'application/json; charset=utf-8',
     'cache-control': 'no-store',
-  },
-  ...init,
+  }, init.headers),
 });
 
 const text = (body, init = {}) => new Response(body, {
-  headers: {
+  ...init,
+  headers: withSecurityHeaders({
     'content-type': 'text/plain; charset=utf-8',
     'cache-control': 'no-store',
-  },
-  ...init,
+  }, init.headers),
 });
 
 const html = (body, init = {}) => new Response(body, {
-  headers: {
+  ...init,
+  headers: withSecurityHeaders({
     'content-type': 'text/html; charset=utf-8',
     'cache-control': 'no-store',
-  },
-  ...init,
+  }, init.headers),
 });
 
 const nowIso = () => new Date().toISOString();
@@ -664,6 +707,7 @@ const handleDeleteApi = async (request, env, id) => {
 };
 
 const renderDeletePage = ({ title, message, id = '', token = '', showConfirm = false, statusCode = 200 }) => {
+  const nonce = randomId(18);
   const escapedTitle = String(title || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const escapedMessage = String(message || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const escapedId = String(id || '').replace(/"/g, '&quot;');
@@ -678,57 +722,66 @@ const renderDeletePage = ({ title, message, id = '', token = '', showConfirm = f
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <main class="container">
-      <h1>Reiven.io</h1>
-      <p class="muted">Quantum resistant encrypted file sharing for the masses</p>
+    <main class="app-shell">
+      <header class="site-header">
+        <a class="brand-mark" href="/index.html">reiven.io</a>
+        <nav class="site-nav" aria-label="Primary">
+          <a class="nav-link active" href="/index.html" aria-current="page">share</a>
+          <a class="nav-link" href="/index.html#download">download</a>
+          <a class="nav-link" href="/index.html#cli">cli</a>
+        </nav>
+      </header>
 
-      <section id="delete-card" class="card" data-file-id="${escapedId}" data-token="${escapedToken}">
-        <h2>${escapedTitle}</h2>
-        <p id="delete-message">${escapedMessage}</p>
-        ${showConfirm ? `
-        <div style="display:flex; gap:10px; margin-top:14px;">
-          <button id="delete-yes-btn" type="button">Yes</button>
-          <button id="delete-no-btn" type="button">No</button>
-        </div>
-        ` : `
-        <div style="margin-top:14px;">
-          <a href="/">Back to Reiven.io</a>
-        </div>
-        `}
+      <section class="page-panel delete-shell">
+        <section id="delete-card" class="utility-card delete-card" data-file-id="${escapedId}" data-token="${escapedToken}">
+          <div class="download-form">
+            <p id="delete-title" class="share-title">${escapedTitle}</p>
+            <p id="delete-message" class="delete-message">${escapedMessage}</p>
+            ${showConfirm ? `
+            <div id="delete-actions" class="delete-actions">
+              <button id="delete-yes-btn" type="button" class="cta-btn">Yes</button>
+              <button id="delete-no-btn" type="button" class="cta-btn delete-no-btn">No</button>
+            </div>
+            ` : ''}
+          </div>
+        </section>
+
+        <a id="delete-back-link" href="/index.html" class="cta-btn delete-back-btn">Back to reiven.io</a>
       </section>
+
+      <footer class="footer-note">
+        Server sees only ciphertext · AES-256-GCM · Argon2id · No accounts · Zero retention
+      </footer>
     </main>
 
-    <script>
+    <script nonce="${nonce}">
       (function () {
         var card = document.getElementById('delete-card');
         if (!card) return;
+        var titleEl = document.getElementById('delete-title');
         var yesBtn = document.getElementById('delete-yes-btn');
         var noBtn = document.getElementById('delete-no-btn');
         var msgEl = document.getElementById('delete-message');
-        if (!yesBtn || !noBtn || !msgEl) return;
+        var actionsEl = document.getElementById('delete-actions');
+        var backLinkEl = document.getElementById('delete-back-link');
+        if (!msgEl) return;
 
         var fileId = card.getAttribute('data-file-id') || '';
         var token = card.getAttribute('data-token') || '';
         var done = false;
 
-        var setMessage = function (text, isError) {
+        var setMessage = function (text, isError, nextTitle) {
+          if (titleEl && nextTitle) {
+            titleEl.textContent = nextTitle;
+          }
           msgEl.textContent = text;
-          msgEl.classList.toggle('error', !!isError);
+          card.classList.toggle('error', !!isError);
         };
 
+        if (!yesBtn || !noBtn) return;
+
         noBtn.addEventListener('click', function () {
-          if (done) return;
-          done = true;
-          yesBtn.remove();
-          noBtn.remove();
-          setMessage('Deletion canceled. The file was not deleted.', false);
-          var back = document.createElement('a');
-          back.href = '/';
-          back.textContent = 'Back to Reiven.io';
-          var wrap = document.createElement('div');
-          wrap.style.marginTop = '14px';
-          wrap.appendChild(back);
-          card.appendChild(wrap);
+          window.location.href = '/index.html';
         });
 
         yesBtn.addEventListener('click', async function () {
@@ -747,24 +800,17 @@ const renderDeletePage = ({ title, message, id = '', token = '', showConfirm = f
                 var payload = await res.json();
                 text = payload && payload.error ? payload.error : text;
               } catch (_) {}
-              setMessage(text, true);
+              setMessage(text, true, 'Delete file');
               done = false;
               yesBtn.disabled = false;
               noBtn.disabled = false;
               return;
             }
-            yesBtn.remove();
-            noBtn.remove();
-            setMessage('File deleted successfully.', false);
-            var back = document.createElement('a');
-            back.href = '/';
-            back.textContent = 'Back to Reiven.io';
-            var wrap = document.createElement('div');
-            wrap.style.marginTop = '14px';
-            wrap.appendChild(back);
-            card.appendChild(wrap);
+            if (actionsEl) actionsEl.remove();
+            setMessage('File deleted successfully.', false, 'Delete file');
+            if (backLinkEl) backLinkEl.focus();
           } catch (_) {
-            setMessage('Network error while deleting file.', true);
+            setMessage('Network error while deleting file.', true, 'Delete file');
             done = false;
             yesBtn.disabled = false;
             noBtn.disabled = false;
@@ -775,7 +821,12 @@ const renderDeletePage = ({ title, message, id = '', token = '', showConfirm = f
   </body>
 </html>`;
 
-  return html(page, { status: statusCode });
+  return html(page, {
+    status: statusCode,
+    headers: {
+      'content-security-policy': buildContentSecurityPolicy(nonce),
+    },
+  });
 };
 
 const handleDeletePage = async (request, env, id, token) => {
@@ -808,7 +859,14 @@ const handleDeletePage = async (request, env, id, token) => {
 
 const handleEncryptionConfig = () => json(ENCRYPTION_CONFIG);
 
-const serveAsset = (request, env) => env.ASSETS.fetch(request);
+const serveAsset = async (request, env) => {
+  const response = await env.ASSETS.fetch(request);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: withSecurityHeaders(response.headers),
+  });
+};
 
 export default {
   async fetch(request, env) {

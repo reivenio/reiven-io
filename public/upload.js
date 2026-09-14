@@ -1,9 +1,8 @@
 const CALIBRATION_CACHE_KEY = 'eshare_argon_calibration_v3';
-const ATTACKER_CPU_NAME = 'AMD Threadripper PRO 9995WX (96 cores)';
 const ATTACKER_REF_ARGON = Object.freeze({ time: 4, mem: 65536, parallelism: 1 });
 const ATTACKER_REF_GUESSES_PER_SECOND = 0.55;
 const ATTACKER_PQ_WRAPPING_OVERHEAD = 1.08;
-const ATTACKER_REFERENCE_NOTE = 'Model anchored to fixed Argon2id benchmark assumptions for this hardware class (tuned constant, not local calibration).';
+const ATTACKER_REFERENCE_NOTE = 'Approximate offline-attack model, not a guarantee.';
 const MAX_PARALLEL_PART_UPLOADS = 3;
 let encryptionConfig = null;
 
@@ -11,9 +10,11 @@ const uploadForm = document.getElementById('upload-form');
 const statusEl = document.getElementById('status');
 const linksEl = document.getElementById('links');
 const accessCodeEl = document.getElementById('access-code');
+const uploadCompleteExpiryEl = document.getElementById('upload-complete-expiry');
 const copyCodeBtn = document.getElementById('copy-code-btn');
 const copyDownloadBtn = document.getElementById('copy-download-btn');
 const copyDeleteBtn = document.getElementById('copy-delete-btn');
+const deleteRowEl = document.getElementById('delete-row');
 const uploadBtn = document.getElementById('upload-btn');
 const benchmarkStatusEl = document.getElementById('benchmark-status');
 const securityEstimateEl = document.getElementById('security-estimate');
@@ -21,10 +22,16 @@ const securityDetailsEl = document.getElementById('security-details');
 const bruteForceEstimateEl = document.getElementById('bruteforce-estimate');
 const securityProfileLabelEl = document.getElementById('security-profile-label');
 const passwordInputEl = document.getElementById('password-input');
+const passwordToggleBtnEl = document.getElementById('password-toggle-btn');
+const passwordNoteEl = document.getElementById('password-note');
 const encryptionTypeInputEl = document.getElementById('encryption-type-input');
 const allowReceiverDeleteInputEl = document.getElementById('allow-receiver-delete-input');
+const qrModeInputEl = document.getElementById('qr-mode-input');
 const contentTypeInputEl = document.getElementById('content-type-input');
 const fileInputWrapEl = document.getElementById('file-input-wrap');
+const fileInputEl = document.getElementById('file-input');
+const uploadDropEl = document.querySelector('.upload-drop');
+const fileDropTextEl = document.getElementById('file-drop-text');
 const noteInputWrapEl = document.getElementById('note-input-wrap');
 const noteInputEl = document.getElementById('note-input');
 const noteInputLabelEl = document.getElementById('note-input-label');
@@ -42,6 +49,12 @@ const contentTypeNoteBtnEl = document.getElementById('content-type-note-btn');
 const codeDownloadForm = document.getElementById('code-download-form');
 const codeInputEl = document.getElementById('code-input');
 const codeStatusEl = document.getElementById('code-status');
+const qrRowEl = document.getElementById('qr-row');
+const qrCodeEl = document.getElementById('qr-code');
+const qrLinkEl = document.getElementById('qr-link');
+const copyQrBtn = document.getElementById('copy-qr-btn');
+const completeNoteEl = document.getElementById('complete-note');
+const codeSegmentEls = Array.from(document.querySelectorAll('.download-code-input'));
 const startupOverlayEl = document.getElementById('startup-overlay');
 const STORAGE_BACKEND = 'ramdisk';
 const ENCRYPTION_TYPE_STANDARD = 'standard';
@@ -65,6 +78,7 @@ workerReady.catch(() => {});
 let calibrationPromise = null;
 let calibrationProfile = null;
 let statusDotsTimer = null;
+let selectedFile = null;
 
 const clearPendingWithError = (message) => {
   for (const p of pending.values()) {
@@ -172,6 +186,13 @@ const showStatus = (message, isError = false) => {
   setStatusText(message, isError);
 };
 
+const hideStatus = () => {
+  stopStatusDots();
+  statusEl.classList.add('hidden');
+  statusEl.classList.remove('error');
+  statusEl.textContent = '';
+};
+
 const showStepStatus = (message) => {
   const base = String(message || '').replace(/\.*\s*$/, '');
   startStatusDots(base);
@@ -192,6 +213,12 @@ const showCodeStatus = (message, isError = false) => {
   codeStatusEl.textContent = message;
   codeStatusEl.classList.remove('hidden');
   codeStatusEl.classList.toggle('error', isError);
+};
+
+const hideCodeStatus = () => {
+  codeStatusEl.textContent = '';
+  codeStatusEl.classList.add('hidden');
+  codeStatusEl.classList.remove('error');
 };
 
 const finishStartupLoading = () => {
@@ -219,6 +246,137 @@ const copyToClipboard = async (value, button) => {
 
 const formatMbProgress = (bytes) => {
   return `${Math.round(bytes / (1024 * 1024))}`;
+};
+
+const formatFileSize = (bytes) => {
+  const value = Number(bytes || 0);
+  if (value < 1024) {
+    return `${value} B`;
+  }
+  if (value < 1024 * 1024) {
+    return `${(value / 1024).toFixed(1)} KB`;
+  }
+  if (value < 1024 * 1024 * 1024) {
+    return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+  }
+  return `${(value / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+};
+
+const updateFileDropText = () => {
+  if (!fileDropTextEl) {
+    return;
+  }
+  if (!selectedFile) {
+    fileDropTextEl.textContent = 'Select or drop a file to upload';
+    return;
+  }
+  fileDropTextEl.textContent = `Selected: ${selectedFile.name} (${formatFileSize(selectedFile.size)})`;
+};
+
+const setSelectedFile = (file) => {
+  selectedFile = file || null;
+  updateFileDropText();
+};
+
+const syncFileInput = (file) => {
+  if (!fileInputEl || !file) {
+    return;
+  }
+  try {
+    const transfer = new DataTransfer();
+    transfer.items.add(file);
+    fileInputEl.files = transfer.files;
+  } catch {
+  }
+};
+
+const base64UrlEncode = (bytes) => {
+  let binary = '';
+  for (const value of bytes) {
+    binary += String.fromCharCode(value);
+  }
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+};
+
+const generateRandomPassword = () => {
+  const cryptoApi = window.crypto || window.msCrypto;
+  if (!cryptoApi || typeof cryptoApi.getRandomValues !== 'function') {
+    throw new Error('Secure random generation is unavailable in this browser.');
+  }
+  const bytes = new Uint8Array(32);
+  cryptoApi.getRandomValues(bytes);
+  return base64UrlEncode(bytes);
+};
+
+const buildQrDownloadUrl = (downloadUrl, password) => {
+  const url = new URL(downloadUrl, window.location.origin);
+  const params = new URLSearchParams();
+  params.set('key', password);
+  params.set('auto', '1');
+  url.hash = params.toString();
+  return url.toString();
+};
+
+const setQrModeState = () => {
+  const enabled = Boolean(qrModeInputEl && qrModeInputEl.checked);
+  if (passwordInputEl) {
+    passwordInputEl.disabled = enabled;
+    passwordInputEl.required = !enabled;
+    passwordInputEl.placeholder = enabled ? 'generated in browser for QR Mode' : '';
+    if (enabled) {
+      passwordInputEl.value = '';
+      passwordInputEl.type = 'password';
+      updateBruteForceEstimate();
+    }
+  }
+  if (passwordToggleBtnEl) {
+    passwordToggleBtnEl.disabled = enabled;
+    passwordToggleBtnEl.setAttribute('aria-pressed', 'false');
+    passwordToggleBtnEl.setAttribute('aria-label', 'Show encryption key');
+  }
+  if (passwordNoteEl) {
+    passwordNoteEl.textContent = enabled
+      ? 'QR Mode generates a random 256-bit key in this browser.'
+      : 'Min 32 chars.';
+  }
+};
+
+const clearQrResult = () => {
+  if (qrRowEl) {
+    qrRowEl.classList.add('hidden');
+  }
+  if (qrCodeEl) {
+    qrCodeEl.textContent = '';
+  }
+  if (qrLinkEl) {
+    qrLinkEl.href = '#';
+    qrLinkEl.textContent = '';
+  }
+};
+
+const renderQrResult = async (qrDownloadUrl) => {
+  if (!qrRowEl || !qrCodeEl || !qrLinkEl) {
+    return;
+  }
+  qrLinkEl.href = qrDownloadUrl;
+  qrLinkEl.textContent = qrDownloadUrl;
+  if (!window.ReivenQR || typeof window.ReivenQR.toString !== 'function') {
+    qrCodeEl.textContent = 'QR unavailable. Copy the QR link instead.';
+    qrRowEl.classList.remove('hidden');
+    return;
+  }
+  try {
+    const svg = await window.ReivenQR.toString(qrDownloadUrl, {
+      type: 'svg',
+      errorCorrectionLevel: 'M',
+      margin: 1,
+      width: 192,
+    });
+    qrCodeEl.innerHTML = svg;
+  } catch {
+    qrCodeEl.textContent = 'QR unavailable. Copy the QR link instead.';
+  }
+  qrRowEl.classList.remove('hidden');
 };
 
 const requestJson = async (url, options = {}) => {
@@ -313,13 +471,13 @@ const uploadPart = ({ uploadId, partNumber, chunkBlob, onProgress }) => {
   });
 };
 
-const uploadEncryptedBlobMultipart = async ({ blob, originalName, statusPrefix, allowReceiverDelete, isNote }) => {
+const initMultipartUpload = async ({ originalName, size, allowReceiverDelete, isNote }) => {
   const init = await requestJson('/api/upload/init', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       originalName,
-      size: blob.size,
+      size,
       storage: STORAGE_BACKEND,
       allowReceiverDelete: Boolean(allowReceiverDelete),
       isNote: Boolean(isNote),
@@ -331,6 +489,40 @@ const uploadEncryptedBlobMultipart = async ({ blob, originalName, statusPrefix, 
   if (!uploadId || !Number.isFinite(partSize) || partSize <= 0) {
     throw new Error('Upload initialization returned invalid session data');
   }
+  return { uploadId, partSize };
+};
+
+const completeMultipartUpload = ({ uploadId, size, parts }) => {
+  return requestJson('/api/upload/complete', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      uploadId,
+      size,
+      parts,
+    }),
+  });
+};
+
+const abortMultipartUpload = async (uploadId) => {
+  try {
+    await fetch('/api/upload/abort', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ uploadId }),
+    });
+  } catch {
+    // Ignore abort failures in client cleanup path.
+  }
+};
+
+const uploadEncryptedBlobMultipart = async ({ blob, originalName, statusPrefix, allowReceiverDelete, isNote }) => {
+  const { uploadId, partSize } = await initMultipartUpload({
+    originalName,
+    size: blob.size,
+    allowReceiverDelete,
+    isNote,
+  });
 
   const parts = [];
   const partCount = Math.ceil(blob.size / partSize);
@@ -391,26 +583,115 @@ const uploadEncryptedBlobMultipart = async ({ blob, originalName, statusPrefix, 
       }
     }
 
-    return requestJson('/api/upload/complete', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        uploadId,
-        size: blob.size,
-        parts,
-      }),
+    return completeMultipartUpload({
+      uploadId,
+      size: blob.size,
+      parts,
     });
   } catch (err) {
-    try {
-      await fetch('/api/upload/abort', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ uploadId }),
+    await abortMultipartUpload(uploadId);
+    throw err;
+  }
+};
+
+const uploadEncryptedFileStreaming = async ({ file, originalName, password, statusPrefix, allowReceiverDelete }) => {
+  const pim = getDefaultPim();
+  const encryptionType = getSelectedEncryptionType();
+  const session = await callWorker('encrypt-init', {
+    password,
+    pim,
+    encryptionType,
+    originalName,
+  }, [], {
+    timeoutMs: 180000,
+    onProgress: (progress) => {
+      const message = progress.message || 'Preparing encryption session...';
+      if (message.startsWith('Deriving key with Argon2id')) {
+        startStatusDots('Deriving key with Argon2id');
+        return;
+      }
+      showStatus(message);
+    },
+  });
+
+  const sessionId = session.sessionId;
+  const headerBuffer = session.headerBuffer;
+  const chunkPlainSize = Number(session.chunkPlainSize || 0);
+  if (!sessionId || !(headerBuffer instanceof ArrayBuffer) || !Number.isFinite(chunkPlainSize) || chunkPlainSize <= 0) {
+    throw new Error('Encryption session returned invalid metadata');
+  }
+
+  const chunkCount = Math.ceil(file.size / chunkPlainSize);
+  const encryptedSize = headerBuffer.byteLength + file.size + (chunkCount * 16);
+  let uploadId = '';
+  try {
+    ({ uploadId } = await initMultipartUpload({
+      originalName: 'encrypted.bin',
+      size: encryptedSize,
+      allowReceiverDelete,
+      isNote: false,
+    }));
+
+    const parts = [];
+    let uploadedBytes = 0;
+
+    const updateStatus = (extra = '') => {
+      const loadedMb = formatMbProgress(uploadedBytes);
+      const totalMb = formatMbProgress(encryptedSize);
+      showStatus(`${statusPrefix} Uploading ${loadedMb}/${totalMb} MB${extra}`);
+    };
+
+    for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
+      const start = chunkIndex * chunkPlainSize;
+      const end = Math.min(start + chunkPlainSize, file.size);
+      const plainChunkBuffer = await file.slice(start, end).arrayBuffer();
+      showStatus(`${statusPrefix} Encrypting chunk ${chunkIndex + 1}/${chunkCount}`);
+      const encryptedChunk = await callWorker('encrypt-chunk', {
+        sessionId,
+        chunkIndex,
+        chunkBuffer: plainChunkBuffer,
+      }, [plainChunkBuffer], {
+        timeoutMs: 180000,
       });
-    } catch {
-      // Ignore abort failures in client cleanup path.
+      const encryptedChunkBuffer = encryptedChunk.chunkBuffer;
+      const chunkBlob = chunkIndex === 0
+        ? new Blob([headerBuffer, encryptedChunkBuffer], { type: 'application/octet-stream' })
+        : new Blob([encryptedChunkBuffer], { type: 'application/octet-stream' });
+      const baseUploadedBytes = uploadedBytes;
+      const partNumber = chunkIndex + 1;
+      updateStatus();
+      const partPayload = await uploadPart({
+        uploadId,
+        partNumber,
+        chunkBlob,
+        onProgress: (loadedBytes) => {
+          uploadedBytes = baseUploadedBytes + Math.min(loadedBytes, chunkBlob.size);
+          updateStatus();
+        },
+      });
+      uploadedBytes = baseUploadedBytes + chunkBlob.size;
+      parts.push({
+        partNumber: partPayload.partNumber,
+        etag: partPayload.etag,
+      });
+    }
+
+    return await completeMultipartUpload({
+      uploadId,
+      size: encryptedSize,
+      parts,
+    });
+  } catch (err) {
+    if (uploadId) {
+      await abortMultipartUpload(uploadId);
     }
     throw err;
+  } finally {
+    try {
+      await callWorker('encrypt-finish', { sessionId });
+    } catch {
+      // Ignore worker session cleanup failures.
+    }
   }
 };
 
@@ -422,6 +703,67 @@ const normalizeCode = (value) => {
 const formatCode = (value) => {
   const normalized = normalizeCode(value);
   return normalized ? normalized.match(/.{1,2}/g).join('-') : null;
+};
+
+const sanitizeCodeSegment = (value) => {
+  return String(value || '').replace(/\D/g, '').slice(0, 2);
+};
+
+const syncCodeInput = () => {
+  if (!codeInputEl) {
+    return null;
+  }
+  const value = codeSegmentEls.map((input) => sanitizeCodeSegment(input.value)).join('');
+  codeInputEl.value = value;
+  return value;
+};
+
+const applyCodeDigits = (digits) => {
+  const normalized = String(digits || '').replace(/\D/g, '').slice(0, 8);
+  codeSegmentEls.forEach((input, index) => {
+    input.value = normalized.slice(index * 2, index * 2 + 2);
+  });
+  syncCodeInput();
+};
+
+const initializeCodeInputs = () => {
+  if (!codeSegmentEls.length) {
+    return;
+  }
+
+  codeSegmentEls.forEach((input, index) => {
+    input.addEventListener('input', (event) => {
+      const sanitized = sanitizeCodeSegment(event.target.value);
+      event.target.value = sanitized;
+      syncCodeInput();
+      hideCodeStatus();
+      if (sanitized.length === 2 && index < codeSegmentEls.length - 1) {
+        codeSegmentEls[index + 1].focus();
+        codeSegmentEls[index + 1].select();
+      }
+    });
+
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Backspace' && !event.currentTarget.value && index > 0) {
+        codeSegmentEls[index - 1].focus();
+        codeSegmentEls[index - 1].select();
+      }
+    });
+
+    input.addEventListener('paste', (event) => {
+      event.preventDefault();
+      const pasted = event.clipboardData?.getData('text') || '';
+      const digits = pasted.replace(/\D/g, '');
+      if (!digits) {
+        return;
+      }
+      applyCodeDigits(digits);
+      const nextIndex = Math.min(Math.ceil(Math.min(digits.length, 8) / 2), codeSegmentEls.length - 1);
+      codeSegmentEls[nextIndex].focus();
+      codeSegmentEls[nextIndex].select();
+      hideCodeStatus();
+    });
+  });
 };
 
 const setActiveTab = (tab) => {
@@ -468,18 +810,17 @@ const setContentType = (value) => {
   if (noteInputEl) {
     noteInputEl.required = type === CONTENT_TYPE_NOTE;
     noteInputEl.disabled = type !== CONTENT_TYPE_NOTE;
-    noteInputEl.placeholder = '// add operational notes here...';
+    noteInputEl.placeholder = '';
   }
   if (noteInputLabelEl) {
-    noteInputLabelEl.textContent = 'packet notes';
+    noteInputLabelEl.textContent = 'PAYLOAD';
   }
   if (noteInputWrapEl) {
     noteInputWrapEl.classList.toggle('hidden', type !== CONTENT_TYPE_NOTE);
     noteInputWrapEl.classList.toggle('note-mode', type === CONTENT_TYPE_NOTE);
   }
-  const fileInput = document.getElementById('file-input');
-  if (fileInput) {
-    fileInput.required = type === CONTENT_TYPE_FILE;
+  if (fileInputEl) {
+    fileInputEl.required = false;
   }
 };
 
@@ -553,8 +894,12 @@ const formatDuration = (seconds) => {
 };
 
 const updateBruteForceEstimate = () => {
+  if (qrModeInputEl && qrModeInputEl.checked) {
+    bruteForceEstimateEl.textContent = 'QR Mode uses a random 256-bit key generated in this browser. The QR link itself becomes the secret.';
+    return;
+  }
   if (!encryptionConfig) {
-    bruteForceEstimateEl.textContent = `Brute-force baseline (${ATTACKER_CPU_NAME}): loading encryption profile...`;
+    bruteForceEstimateEl.textContent = 'Password strength estimate: loading encryption profile...';
     return;
   }
 
@@ -562,7 +907,7 @@ const updateBruteForceEstimate = () => {
   const passwordLen = password.length;
   const charsetSize = guessCharsetSize(password);
   if (passwordLen === 0 || charsetSize === 0) {
-    bruteForceEstimateEl.textContent = `Brute-force baseline (${ATTACKER_CPU_NAME}): enter a password to estimate crack time. ${ATTACKER_REFERENCE_NOTE}`;
+    bruteForceEstimateEl.textContent = `Password strength estimate appears after you type a password. ${ATTACKER_REFERENCE_NOTE}`;
     return;
   }
 
@@ -580,12 +925,12 @@ const updateBruteForceEstimate = () => {
     crackedIn = `~${formatDuration(10 ** log10Seconds)}`;
   }
 
-  bruteForceEstimateEl.textContent = `Estimated average crack time (${ATTACKER_CPU_NAME}, highly optimized CPU attack): ${crackedIn}. Assumes random password of length ${passwordLen} over charset size ${charsetSize}, ${selectedParams.label} profile, PIM=${getDefaultPim()}, and includes ML-KEM wrap overhead. ${ATTACKER_REFERENCE_NOTE}`;
+  bruteForceEstimateEl.textContent = `Estimated offline attack time: ${crackedIn}. Assumes a random password of length ${passwordLen} over charset size ${charsetSize}, ${selectedParams.label} profile, PIM=${getDefaultPim()}, and ML-KEM wrap overhead. ${ATTACKER_REFERENCE_NOTE}`;
 };
 
 const updateSecurityEstimate = () => {
   if (!calibrationProfile) {
-    securityEstimateEl.textContent = 'Estimated encryption time on your device: calculating...';
+    securityEstimateEl.textContent = 'Estimated key setup time on this device: calculating...';
     return;
   }
 
@@ -597,8 +942,8 @@ const updateSecurityEstimate = () => {
   if (securityProfileLabelEl) {
     securityProfileLabelEl.textContent = `Security profile: ${selectedParams.label}`;
   }
-  securityEstimateEl.textContent = `Estimated encryption time on your device: ~${formatMs(selectedTime)}.`;
-  securityDetailsEl.textContent = `Encryption is done in-browser using Argon2id (PIM=${getDefaultPim()}, iterations=${selectedParams.time}, memory=${memMb}MB, parallelism=${selectedParams.parallelism}) to derive a KEK seed. A deterministic ML-KEM-768 keypair is derived from that seed, the DEK is wrapped via ML-KEM shared secret, and file payload uses AES-256-GCM with a random 256-bit DEK.`;
+  securityEstimateEl.textContent = `Estimated key setup time on this device: ~${formatMs(selectedTime)}.`;
+  securityDetailsEl.textContent = `Your password is processed locally with Argon2id (PIM=${getDefaultPim()}, iterations=${selectedParams.time}, memory=${memMb}MB). Reiven wraps a random file key with ML-KEM-768, then encrypts notes and file chunks in-browser with AES-256-GCM before upload. The server stores only ciphertext. Strong passwords remain critical.`;
   updateBruteForceEstimate();
 };
 
@@ -674,17 +1019,17 @@ const getCalibrationProfile = async () => {
 
 const initializeSecurityControls = async () => {
   uploadBtn.disabled = true;
-  benchmarkStatusEl.textContent = 'Running browser benchmark...';
+  benchmarkStatusEl.textContent = 'Preparing in-browser encryption...';
 
   try {
     await workerReady;
     calibrationProfile = await getCalibrationProfile();
-    benchmarkStatusEl.textContent = `Baseline ready (${formatMs(calibrationProfile.measuredMs)}).`;
+    benchmarkStatusEl.textContent = 'In-browser encryption ready.';
     uploadBtn.disabled = false;
     updateSecurityEstimate();
   } catch (error) {
     console.error('[argon2 init]', error);
-    benchmarkStatusEl.textContent = 'Benchmark failed, using safe defaults.';
+    benchmarkStatusEl.textContent = 'In-browser encryption ready with safe defaults.';
     calibrationProfile = {
       params: clampArgonParams({ time: 2, mem: 32768, parallelism: 1 }),
       measuredMs: 700,
@@ -697,6 +1042,21 @@ const initializeSecurityControls = async () => {
 };
 
 passwordInputEl.addEventListener('input', updateBruteForceEstimate);
+if (passwordToggleBtnEl && passwordInputEl) {
+  passwordToggleBtnEl.addEventListener('click', () => {
+    const shouldShow = passwordInputEl.type === 'password';
+    passwordInputEl.type = shouldShow ? 'text' : 'password';
+    passwordToggleBtnEl.setAttribute('aria-label', shouldShow ? 'Hide encryption key' : 'Show encryption key');
+    passwordToggleBtnEl.setAttribute('aria-pressed', String(shouldShow));
+    passwordInputEl.focus();
+  });
+}
+if (qrModeInputEl) {
+  qrModeInputEl.addEventListener('change', () => {
+    setQrModeState();
+    updateBruteForceEstimate();
+  });
+}
 if (encryptionTypeInputEl) {
   encryptionTypeInputEl.addEventListener('change', updateSecurityEstimate);
 }
@@ -710,6 +1070,47 @@ if (contentTypeFileBtnEl) {
 }
 if (contentTypeNoteBtnEl) {
   contentTypeNoteBtnEl.addEventListener('click', () => setContentType(CONTENT_TYPE_NOTE));
+}
+if (fileInputEl) {
+  fileInputEl.addEventListener('change', () => {
+    const file = fileInputEl.files && fileInputEl.files.length > 0 ? fileInputEl.files[0] : null;
+    setSelectedFile(file);
+  });
+}
+if (uploadDropEl) {
+  const isFileDrag = (event) => Array.from(event.dataTransfer?.types || []).includes('Files');
+  const showDragState = (event) => {
+    if (!isFileDrag(event)) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    uploadDropEl.classList.add('drag-over');
+  };
+  const hideDragState = (event) => {
+    if (isFileDrag(event)) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    uploadDropEl.classList.remove('drag-over');
+  };
+  uploadDropEl.addEventListener('dragenter', showDragState);
+  uploadDropEl.addEventListener('dragover', showDragState);
+  uploadDropEl.addEventListener('dragleave', hideDragState);
+  uploadDropEl.addEventListener('drop', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    uploadDropEl.classList.remove('drag-over');
+    const file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files.length > 0
+      ? event.dataTransfer.files[0]
+      : null;
+    if (!file) {
+      return;
+    }
+    setContentType(CONTENT_TYPE_FILE);
+    setSelectedFile(file);
+    syncFileInput(file);
+  });
 }
 if (brandHomeBtnEl) {
   brandHomeBtnEl.addEventListener('click', () => setActiveTab('home'));
@@ -732,10 +1133,9 @@ codeInputEl.addEventListener('input', () => {
 uploadForm.addEventListener('submit', async (event) => {
   event.preventDefault();
 
-  const fileInput = document.getElementById('file-input');
   const passwordInput = document.getElementById('password-input');
-  const file = fileInput ? fileInput.files?.[0] : null;
-  const password = passwordInput.value;
+  const file = selectedFile || (fileInputEl ? fileInputEl.files?.[0] : null);
+  const qrMode = Boolean(qrModeInputEl && qrModeInputEl.checked);
 
   const contentType = contentTypeInputEl && contentTypeInputEl.value === CONTENT_TYPE_NOTE
     ? CONTENT_TYPE_NOTE
@@ -763,6 +1163,14 @@ uploadForm.addEventListener('submit', async (event) => {
     originalName = file.name;
   }
 
+  let password = '';
+  try {
+    password = qrMode ? generateRandomPassword() : String(passwordInput ? passwordInput.value : '');
+  } catch (error) {
+    showStatus(error.message || 'Could not generate QR Mode key', true);
+    return;
+  }
+
   if (!password) {
     showStatus('Please provide a password.', true);
     return;
@@ -774,6 +1182,7 @@ uploadForm.addEventListener('submit', async (event) => {
     const allowReceiverDelete = Boolean(allowReceiverDeleteInputEl && allowReceiverDeleteInputEl.checked);
     uploadBtn.disabled = true;
     linksEl.classList.add('hidden');
+    clearQrResult();
     uploadForm.classList.remove('hidden');
     await workerReady;
 
@@ -781,61 +1190,79 @@ uploadForm.addEventListener('submit', async (event) => {
       calibrationProfile = await getCalibrationProfile();
     }
 
+    let payload;
+    const selectedProfile = getEncryptionProfile(encryptionType);
+
     if (contentType === CONTENT_TYPE_NOTE) {
       showStepStatus('Preparing note');
-    } else {
-      showStepStatus('Reading file in browser');
-    }
-    const fileBuffer = contentType === CONTENT_TYPE_NOTE
-      ? payloadBytes.buffer
-      : await file.arrayBuffer();
-    const encryptedResult = await callWorker(
-      'encrypt',
-      {
-        fileBuffer,
-        password,
-        pim,
-        encryptionType,
-        baseParams: calibrationProfile.params,
-        originalName,
-      },
-      [fileBuffer],
-      {
-        timeoutMs: 180000,
-        onProgress: (progress) => {
-          const message = progress.message || 'Encrypting in worker...';
-          if (message.startsWith('Deriving key with Argon2id')) {
-            startStatusDots('Deriving key with Argon2id');
-            return;
-          }
-          showStatus(message);
+      const fileBuffer = payloadBytes.buffer;
+      const encryptedResult = await callWorker(
+        'encrypt',
+        {
+          fileBuffer,
+          password,
+          pim,
+          encryptionType,
+          baseParams: calibrationProfile.params,
+          originalName,
         },
-      }
-    );
+        [fileBuffer],
+        {
+          timeoutMs: 180000,
+          onProgress: (progress) => {
+            const message = progress.message || 'Encrypting in worker...';
+            if (message.startsWith('Deriving key with Argon2id')) {
+              startStatusDots('Deriving key with Argon2id');
+              return;
+            }
+            showStatus(message);
+          },
+        }
+      );
 
-    const selectedProfile = getEncryptionProfile(encryptionType);
-    const statusPrefix = `Profile ${selectedProfile.label}: Argon2id time=${encryptedResult.argonParams.time}, mem=${Math.round(encryptedResult.argonParams.mem / 1024)}MB, PIM=${pim}.`;
-    showStatus(`${statusPrefix} Uploading...`);
-    const encryptedBlob = new Blob([encryptedResult.envelopeBuffer], { type: 'application/octet-stream' });
-    const encryptedName = 'encrypted.bin';
+      const statusPrefix = `Profile ${selectedProfile.label}: Argon2id time=${encryptedResult.argonParams.time}, mem=${Math.round(encryptedResult.argonParams.mem / 1024)}MB, PIM=${pim}.`;
+      showStatus(`${statusPrefix} Uploading...`);
+      const encryptedBlob = new Blob([encryptedResult.envelopeBuffer], { type: 'application/octet-stream' });
+      payload = await uploadEncryptedBlobMultipart({
+        blob: encryptedBlob,
+        originalName: 'encrypted.bin',
+        statusPrefix,
+        allowReceiverDelete,
+        isNote: true,
+      });
+    } else {
+      const statusPrefix = `Profile ${selectedProfile.label}: streaming encryption, PIM=${pim}.`;
+      payload = await uploadEncryptedFileStreaming({
+        file,
+        originalName,
+        password,
+        statusPrefix,
+        allowReceiverDelete,
+      });
+    }
 
-    const payload = await uploadEncryptedBlobMultipart({
-      blob: encryptedBlob,
-      originalName: encryptedName,
-      statusPrefix,
-      allowReceiverDelete,
-      isNote: contentType === CONTENT_TYPE_NOTE,
-    });
-
+    const expiresAtText = payload.expiresAt ? new Date(payload.expiresAt).toLocaleString() : 'Unknown';
     document.getElementById('download-link').href = payload.downloadUrl;
     document.getElementById('download-link').textContent = payload.downloadUrl;
-    document.getElementById('delete-link').href = payload.deleteUrl;
-    document.getElementById('delete-link').textContent = payload.deleteUrl;
+    document.getElementById('delete-link').href = payload.deleteUrl || '#';
+    document.getElementById('delete-link').textContent = payload.deleteUrl || 'Receiver delete disabled.';
     accessCodeEl.textContent = payload.accessCode || 'N/A';
+    uploadCompleteExpiryEl.textContent = `Expires at ${expiresAtText}.`;
+    deleteRowEl.classList.toggle('hidden', !payload.deleteUrl);
+    if (qrMode) {
+      await renderQrResult(buildQrDownloadUrl(payload.downloadUrl, password));
+    } else {
+      clearQrResult();
+    }
+    if (completeNoteEl) {
+      completeNoteEl.textContent = qrMode
+        ? 'QR Mode embeds the decryption key in the QR/link. Anyone with it can decrypt before expiry.'
+        : 'Share the download URL/code and password separately.';
+    }
 
     uploadForm.classList.add('hidden');
     linksEl.classList.remove('hidden');
-    showStatus(`Upload complete. Expires at ${new Date(payload.expiresAt).toLocaleString()}.`);
+    hideStatus();
   } catch (error) {
     showStatus(error.message || 'Upload failed', true);
     console.error('[upload flow]', error);
@@ -868,10 +1295,20 @@ copyDeleteBtn.addEventListener('click', async () => {
   await copyToClipboard(value, copyDeleteBtn);
 });
 
+if (copyQrBtn && qrLinkEl) {
+  copyQrBtn.addEventListener('click', async () => {
+    const value = qrLinkEl.textContent || '';
+    if (!value) {
+      return;
+    }
+    await copyToClipboard(value, copyQrBtn);
+  });
+}
+
 codeDownloadForm.addEventListener('submit', async (event) => {
   event.preventDefault();
 
-  const codeRaw = normalizeCode(codeInputEl.value);
+  const codeRaw = normalizeCode(syncCodeInput());
   if (!codeRaw) {
     showCodeStatus('Invalid code. Use 8 digits, for example 12-34-56-78.', true);
     return;
@@ -889,13 +1326,14 @@ codeDownloadForm.addEventListener('submit', async (event) => {
       throw new Error('File not found for this code');
     }
 
-    window.location.href = `/download.html?id=${encodeURIComponent(payload.id)}`;
+    window.location.href = `/download?id=${encodeURIComponent(payload.id)}`;
   } catch (error) {
     showCodeStatus(error.message || 'Could not resolve file code', true);
   }
 });
 
 const initializeApp = async () => {
+  initializeCodeInputs();
   try {
     encryptionConfig = await loadEncryptionConfig();
   } catch (error) {
@@ -908,6 +1346,8 @@ const initializeApp = async () => {
   if (encryptionTypeInputEl) {
     encryptionTypeInputEl.value = getDefaultEncryptionType();
   }
+  setQrModeState();
+  clearQrResult();
   setContentType(contentTypeInputEl?.value || CONTENT_TYPE_FILE);
   initializeSecurityControls();
 };

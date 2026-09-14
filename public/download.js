@@ -1,8 +1,10 @@
 const VERIFY_TIMEOUT_MS = 180000;
 const DECRYPT_TIMEOUT_MS = 300000;
+const LEGACY_FORMAT_VERSION = 4;
 let encryptionConfig = null;
 
 const statusEl = document.getElementById('status');
+const statusMessageEl = document.getElementById('status-message');
 const fileMetaEl = document.getElementById('file-meta');
 const downloadForm = document.getElementById('download-form');
 const downloadBtn = document.getElementById('download-btn');
@@ -11,10 +13,13 @@ const slowWarningEl = document.getElementById('slow-warning');
 const noteCardEl = document.getElementById('note-card');
 const noteOutputEl = document.getElementById('note-output');
 const noteDownloadBtn = document.getElementById('note-download-btn');
+const passwordInputEl = document.getElementById('password-input');
+const passwordToggleBtn = document.getElementById('password-toggle-btn');
 const textDecoder = new TextDecoder();
 let statusDotsTimer = null;
 let slowWarningTimer = null;
 let fileMeta = null;
+let autoDownloadStarted = false;
 
 const worker = new Worker('/crypto-worker.js');
 let nextRequestId = 1;
@@ -123,9 +128,15 @@ const stopStatusDots = () => {
 };
 
 const setStatusText = (message, isError = false) => {
-  statusEl.textContent = message;
+  if (statusMessageEl) {
+    statusMessageEl.textContent = message;
+    statusMessageEl.classList.toggle('error', isError);
+    statusEl.classList.remove('error');
+  } else {
+    statusEl.textContent = message;
+    statusEl.classList.toggle('error', isError);
+  }
   statusEl.classList.remove('hidden');
-  statusEl.classList.toggle('error', isError);
 };
 
 const showStatus = (message, isError = false) => {
@@ -158,6 +169,16 @@ const startSlowWarningTimer = () => {
   slowWarningTimer = setTimeout(() => {
     showSlowWarning();
   }, 10000);
+};
+
+const runWithSlowCryptoWarning = async (task) => {
+  startSlowWarningTimer();
+  try {
+    return await task();
+  } finally {
+    clearSlowWarningTimer();
+    hideSlowWarning();
+  }
 };
 
 const showStepStatus = (message) => {
@@ -203,10 +224,18 @@ const getEncryptionConfig = () => {
   return encryptionConfig;
 };
 
+const concatUint8Arrays = (left, right) => {
+  const out = new Uint8Array(left.length + right.length);
+  out.set(left, 0);
+  out.set(right, left.length);
+  return out;
+};
+
 const parseEnvelopeHeader = (arrayBuffer) => {
   const cfg = getEncryptionConfig();
   const bytes = new Uint8Array(arrayBuffer);
-  if (bytes.length < cfg.headerFixedLen) {
+  const legacyHeaderFixedLen = 24;
+  if (bytes.length < legacyHeaderFixedLen) {
     throw new Error('Invalid encrypted payload.');
   }
 
@@ -216,9 +245,10 @@ const parseEnvelopeHeader = (arrayBuffer) => {
   }
 
   const version = bytes[7];
-  if (version !== cfg.formatVersion) {
+  if (version !== LEGACY_FORMAT_VERSION && version !== cfg.formatVersion) {
     throw new Error('Unsupported file format version.');
   }
+  const headerFixedLen = version >= cfg.formatVersion ? cfg.headerFixedLen : legacyHeaderFixedLen;
 
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const mem = view.getUint32(12, false);
@@ -241,14 +271,16 @@ const parseEnvelopeHeader = (arrayBuffer) => {
   if (pqCipherLen <= 0) {
     throw new Error('Unsupported ML-KEM ciphertext layout.');
   }
-  const headerSize = cfg.headerFixedLen + saltLen + checkIvLen + checkCipherLen + pqCipherLen + wrapIvLen + wrappedDekLen + ivLen;
+  const headerSize = headerFixedLen + saltLen + checkIvLen + checkCipherLen + pqCipherLen + wrapIvLen + wrappedDekLen + ivLen;
   if (bytes.length < headerSize) {
     throw new Error('Incomplete encrypted header.');
   }
   return {
+    version,
     time: bytes[10],
     mem,
     parallelism: bytes[11],
+    chunkPlainSize: version >= cfg.formatVersion ? view.getUint32(24, false) : 0,
     headerSize,
   };
 };
@@ -260,6 +292,24 @@ const getFileIdFromPath = () => {
   }
 
   return null;
+};
+
+const getAutoDownloadPassword = () => {
+  const hash = String(window.location.hash || '').replace(/^#/, '');
+  if (!hash) {
+    return null;
+  }
+  const params = new URLSearchParams(hash);
+  const password = params.get('key') || params.get('password');
+  const shouldAutoStart = params.get('auto') === '1' || params.has('key');
+  return password && shouldAutoStart ? password : null;
+};
+
+const scrubAutoDownloadHash = () => {
+  if (!window.location.hash || !window.history || typeof window.history.replaceState !== 'function') {
+    return;
+  }
+  window.history.replaceState(null, document.title, `${window.location.pathname}${window.location.search}`);
 };
 
 const loadInfo = async (id) => {
@@ -284,6 +334,7 @@ const loadInfo = async (id) => {
         receiverDeleteBtn.onclick = null;
       }
     }
+    return true;
   } catch (error) {
     fileMetaEl.textContent = error.message;
     downloadBtn.disabled = true;
@@ -295,8 +346,17 @@ const loadInfo = async (id) => {
     if (noteCardEl) {
       noteCardEl.classList.add('hidden');
     }
+    return false;
   }
 };
+
+if (passwordToggleBtn && passwordInputEl) {
+  passwordToggleBtn.addEventListener('click', () => {
+    const nextType = passwordInputEl.type === 'password' ? 'text' : 'password';
+    passwordInputEl.type = nextType;
+    passwordToggleBtn.setAttribute('aria-label', nextType === 'password' ? 'Show password' : 'Hide password');
+  });
+}
 
 const downloadDecryptedFile = async (id, password, pim) => {
   await workerReady;
@@ -315,8 +375,8 @@ const downloadDecryptedFile = async (id, password, pim) => {
   const headerBuffer = await headerResponse.arrayBuffer();
   const headerInfo = parseEnvelopeHeader(headerBuffer);
 
-  const verified = await callWorker(
-    'verify-header',
+  const verified = await runWithSlowCryptoWarning(() => callWorker(
+    'decrypt-init',
     {
       headerBuffer: headerBuffer.slice(0, headerInfo.headerSize),
       password,
@@ -329,82 +389,121 @@ const downloadDecryptedFile = async (id, password, pim) => {
         startStatusDots(`Validating password with Argon2id (time=${headerInfo.time}, mem=${Math.round(headerInfo.mem / 1024)}MB)`);
       },
     }
-  );
+  ));
 
-  showStepStatus('Password accepted. Preparing full download');
-  const response = await fetch(`/api/file/${encodeURIComponent(id)}/download`);
-  const payload = response.ok ? null : await parseApiResponse(response);
-  if (!response.ok) {
-    throw new Error(payload?.error || 'Download failed');
-  }
+  showStepStatus('Password accepted. Preparing download');
+  const filename = verified && verified.originalName ? verified.originalName : `decrypted-${id}`;
+  const isNote = Boolean(fileMeta && fileMeta.isNote);
+  const plaintextChunks = [];
 
-  let encryptedBuffer;
-  const totalBytes = Number(response.headers.get('content-length') || 0);
-  if (!response.body) {
-    encryptedBuffer = await response.arrayBuffer();
-    if (totalBytes > 0) {
-      showStatus(`Downloading encrypted file ${formatMb(totalBytes)}/${formatMb(totalBytes)} MB`);
-    } else {
-      showStepStatus('Downloading encrypted file. This may take a while for large files');
+  if (!verified.chunkPlainSize || verified.chunkPlainSize <= 0) {
+    try {
+      showStepStatus('Downloading encrypted file');
+      const fullResponse = await fetch(`/api/file/${encodeURIComponent(id)}/download`);
+      const fullPayload = fullResponse.ok ? null : await parseApiResponse(fullResponse);
+      if (!fullResponse.ok) {
+        throw new Error(fullPayload?.error || 'Download failed');
+      }
+
+      const encryptedBuffer = await fullResponse.arrayBuffer();
+      showStepStatus('Decrypting file');
+      const decrypted = await runWithSlowCryptoWarning(() => callWorker(
+        'decrypt',
+        {
+          encryptedBuffer,
+          password,
+          pim,
+        },
+        [encryptedBuffer],
+        {
+          timeoutMs: DECRYPT_TIMEOUT_MS,
+        }
+      ));
+      plaintextChunks.push(new Uint8Array(decrypted.plaintextBuffer));
+    } finally {
+      try {
+        await callWorker('decrypt-finish', { sessionId: verified.sessionId });
+      } catch {
+        // Ignore worker cleanup failures.
+      }
     }
   } else {
-    const reader = response.body.getReader();
-    const chunks = [];
-    let received = 0;
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) {
-        break;
-      }
-      chunks.push(value);
-      received += value.byteLength;
-      if (totalBytes > 0) {
-        showStatus(`Downloading encrypted file ${formatMb(received)}/${formatMb(totalBytes)} MB`);
-      } else {
-        showStatus(`Downloading encrypted file ${formatMb(received)} MB...`);
-      }
+    const response = await fetch(`/api/file/${encodeURIComponent(id)}/download`, {
+      headers: {
+        range: `bytes=${verified.headerSize}-`,
+      },
+    });
+    const payload = response.ok ? null : await parseApiResponse(response);
+    if (!response.ok) {
+      throw new Error(payload?.error || 'Download failed');
     }
 
-    const merged = new Uint8Array(received);
-    let offset = 0;
-    for (const chunk of chunks) {
-      merged.set(chunk, offset);
-      offset += chunk.byteLength;
+    const totalCipherBytes = Number(response.headers.get('content-length') || 0);
+
+    try {
+      if (!response.body) {
+        throw new Error('Streaming response body is unavailable in this browser.');
+      }
+
+      const reader = response.body.getReader();
+      let pending = new Uint8Array(0);
+      let receivedCipherBytes = 0;
+      let chunkIndex = 0;
+      const fullChunkCipherSize = verified.chunkPlainSize + 16;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
+        }
+
+        receivedCipherBytes += value.byteLength;
+        pending = concatUint8Arrays(pending, value);
+        if (totalCipherBytes > 0) {
+          showStatus(`Downloading encrypted file ${formatMb(receivedCipherBytes)}/${formatMb(totalCipherBytes)} MB`);
+        } else {
+          showStatus(`Downloading encrypted file ${formatMb(receivedCipherBytes)} MB...`);
+        }
+
+        while (pending.length > 0) {
+          const remainingCipherBytes = totalCipherBytes > 0 ? totalCipherBytes - (receivedCipherBytes - pending.length) : null;
+          const expectedCipherSize = remainingCipherBytes && remainingCipherBytes <= fullChunkCipherSize
+            ? remainingCipherBytes
+            : fullChunkCipherSize;
+          if (pending.length < expectedCipherSize) {
+            break;
+          }
+          const encryptedChunk = pending.slice(0, expectedCipherSize);
+          pending = pending.slice(expectedCipherSize);
+          const decryptedChunk = await runWithSlowCryptoWarning(() => callWorker('decrypt-chunk', {
+            sessionId: verified.sessionId,
+            chunkIndex,
+            chunkBuffer: encryptedChunk.buffer,
+          }, [encryptedChunk.buffer], {
+            timeoutMs: DECRYPT_TIMEOUT_MS,
+          }));
+          plaintextChunks.push(new Uint8Array(decryptedChunk.chunkBuffer));
+          chunkIndex += 1;
+        }
+      }
+
+      if (pending.length > 0) {
+        throw new Error('Encrypted payload ended mid-chunk.');
+      }
+    } finally {
+      try {
+        await callWorker('decrypt-finish', { sessionId: verified.sessionId });
+      } catch {
+        // Ignore worker cleanup failures.
+      }
     }
-    encryptedBuffer = merged.buffer;
   }
 
-  showStepStatus(`Decrypting in worker with Argon2id (time=${headerInfo.time}, mem=${Math.round(headerInfo.mem / 1024)}MB)`);
-
-  const decrypted = await callWorker(
-    'decrypt',
-    {
-      encryptedBuffer,
-      password,
-      pim,
-    },
-    [encryptedBuffer],
-    {
-      timeoutMs: DECRYPT_TIMEOUT_MS,
-      onProgress: (progress) => {
-        const message = progress.message || 'Decrypting in worker...';
-        if (message.startsWith('Deriving key with Argon2id')) {
-          startStatusDots('Deriving key with Argon2id');
-          return;
-        }
-        showStatus(message);
-      },
-    }
-  );
-
-  const decryptedBlob = new Blob([decrypted.plaintextBuffer], { type: 'application/octet-stream' });
-  const filename = (verified && verified.originalName) ? verified.originalName : `decrypted-${id}`;
-  const isNote = Boolean(fileMeta && fileMeta.isNote);
+  const decryptedBlob = new Blob(plaintextChunks, { type: 'application/octet-stream' });
 
   if (isNote && noteOutputEl && noteCardEl) {
     try {
-      noteOutputEl.value = textDecoder.decode(decrypted.plaintextBuffer);
+      noteOutputEl.value = textDecoder.decode(await decryptedBlob.arrayBuffer());
       noteCardEl.classList.remove('hidden');
     } catch {
       noteOutputEl.value = '[Unable to decode note text]';
@@ -439,6 +538,32 @@ const downloadDecryptedFile = async (id, password, pim) => {
 };
 
 const fileId = getFileIdFromPath();
+const startDecryptedDownload = async (password, { auto = false } = {}) => {
+  if (!password) {
+    showStatus('Please provide a password.', true);
+    return;
+  }
+  if (!fileId) {
+    showStatus('Invalid file id.', true);
+    return;
+  }
+
+  try {
+    const cfg = getEncryptionConfig();
+    const pim = cfg.defaultPim;
+    downloadBtn.disabled = true;
+    showStepStatus(auto ? 'QR Mode key detected. Starting download...' : `Downloading encrypted file (fixed profile PIM=${cfg.defaultPim})`);
+    await downloadDecryptedFile(fileId, password, pim);
+    showStatus(Boolean(fileMeta && fileMeta.isNote) ? 'Note ready.' : 'Decrypted download started.');
+  } catch (error) {
+    showStatus(error.message || 'Download failed', true);
+    console.error('[download flow]', error);
+  } finally {
+    hideSlowWarning();
+    downloadBtn.disabled = false;
+  }
+};
+
 const initializeDownload = async () => {
   try {
     encryptionConfig = await loadEncryptionConfig();
@@ -454,38 +579,21 @@ const initializeDownload = async () => {
     return;
   }
 
-  loadInfo(fileId);
+  const loaded = await loadInfo(fileId);
+  const autoPassword = getAutoDownloadPassword();
+  if (loaded && autoPassword && !autoDownloadStarted) {
+    autoDownloadStarted = true;
+    passwordInputEl.value = '';
+    passwordInputEl.placeholder = 'QR Mode key detected';
+    scrubAutoDownloadHash();
+    await startDecryptedDownload(autoPassword, { auto: true });
+    passwordInputEl.placeholder = '';
+  }
 };
 
 downloadForm.addEventListener('submit', async (event) => {
   event.preventDefault();
-
-  const password = document.getElementById('password-input').value;
-  if (!password) {
-    showStatus('Please provide a password.', true);
-    return;
-  }
-  if (!fileId) {
-    showStatus('Invalid file id.', true);
-    return;
-  }
-
-  try {
-    const cfg = getEncryptionConfig();
-    const pim = cfg.defaultPim;
-    downloadBtn.disabled = true;
-    startSlowWarningTimer();
-    showStepStatus(`Downloading encrypted file (fixed profile PIM=${cfg.defaultPim})`);
-    await downloadDecryptedFile(fileId, password, pim);
-    showStatus('Decrypted download started.');
-  } catch (error) {
-    showStatus(error.message || 'Download failed', true);
-    console.error('[download flow]', error);
-  } finally {
-    clearSlowWarningTimer();
-    hideSlowWarning();
-    downloadBtn.disabled = false;
-  }
+  await startDecryptedDownload(passwordInputEl.value);
 });
 
 initializeDownload();

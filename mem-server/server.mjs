@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { createReadStream, promises as fs } from 'node:fs';
 import path from 'node:path';
 
@@ -11,6 +11,7 @@ const PART_SIZE_BYTES = Number(process.env.MEM_PART_SIZE_BYTES || 5 * 1024 * 102
 const MAX_UPLOAD_AGE_MS = Number(process.env.MEM_UPLOAD_MAX_AGE_MS || 2 * 60 * 60 * 1000);
 const CLEANUP_INTERVAL_MS = Number(process.env.MEM_CLEANUP_INTERVAL_MS || 60 * 1000);
 const BEARER = String(process.env.MEM_BEARER_TOKEN || '').trim();
+const ALLOW_AUTH_BYPASS = String(process.env.MEM_ALLOW_AUTH_BYPASS || '').trim() === '1';
 
 const uploads = new Map();
 const files = new Map();
@@ -44,6 +45,15 @@ const authSummary = (authorizationHeader) => {
     tokenLength: token.length || 0,
     tokenFingerprint: tokenFingerprint(token),
   };
+};
+
+const safeEqualString = (left, right) => {
+  const leftBuffer = Buffer.from(String(left || ''));
+  const rightBuffer = Buffer.from(String(right || ''));
+  if (leftBuffer.length !== rightBuffer.length) {
+    return false;
+  }
+  return timingSafeEqual(leftBuffer, rightBuffer);
 };
 
 const json = (res, status, payload) => {
@@ -84,6 +94,15 @@ const ensureDirs = async () => {
 
 const requireAuth = (req, res, context = {}) => {
   if (!BEARER) {
+    if (!ALLOW_AUTH_BYPASS) {
+      logEvent('auth-failed-no-bearer-configured', {
+        reqId: context.reqId || null,
+        method: req.method,
+        path: context.path || null,
+      });
+      json(res, 503, { error: 'Storage authentication is not configured' });
+      return false;
+    }
     logEvent('auth-bypass-no-bearer-configured', {
       reqId: context.reqId || null,
       method: req.method,
@@ -94,13 +113,8 @@ const requireAuth = (req, res, context = {}) => {
   const value = String(req.headers.authorization || '');
   const expected = `Bearer ${BEARER}`;
   const providedAuth = authSummary(value);
-  const expectedAuth = {
-    scheme: 'Bearer',
-    tokenLength: BEARER.length,
-    tokenFingerprint: tokenFingerprint(BEARER),
-  };
 
-  if (value !== expected) {
+  if (!safeEqualString(value, expected)) {
     logEvent('auth-failed', {
       reqId: context.reqId || null,
       method: req.method,
@@ -108,9 +122,6 @@ const requireAuth = (req, res, context = {}) => {
       remoteAddress: req.socket?.remoteAddress || null,
       userAgent: String(req.headers['user-agent'] || ''),
       ...providedAuth,
-      expectedScheme: expectedAuth.scheme,
-      expectedTokenLength: expectedAuth.tokenLength,
-      expectedTokenFingerprint: expectedAuth.tokenFingerprint,
     });
     json(res, 401, { error: 'Unauthorized' });
     return false;
@@ -514,6 +525,10 @@ const server = createServer(async (req, res) => {
 });
 
 await ensureDirs();
+if (!BEARER && !ALLOW_AUTH_BYPASS) {
+  console.error('[reiven-mem-server] MEM_BEARER_TOKEN is required. Set MEM_ALLOW_AUTH_BYPASS=1 only for isolated local development.');
+  process.exit(1);
+}
 setInterval(() => {
   cleanup().catch((err) => {
     console.error('[cleanup]', err && err.message ? err.message : err);

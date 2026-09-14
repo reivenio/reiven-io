@@ -17,7 +17,7 @@ const DEFAULT_ENCRYPTION_TYPE = 'standard';
 
 export const ENCRYPTION_CONFIG = Object.freeze({
   magic: 'ESHARE1',
-  formatVersion: 4,
+  formatVersion: 5,
   defaultPim: 100,
   defaultEncryptionType: DEFAULT_ENCRYPTION_TYPE,
   defaultSecurityLevel: 1,
@@ -26,8 +26,9 @@ export const ENCRYPTION_CONFIG = Object.freeze({
   ivLen: 12,
   checkIvLen: 12,
   wrapIvLen: 12,
-  headerFixedLen: 24,
+  headerFixedLen: 28,
   headerProbeBytes: 4096,
+  chunkPlainSize: 8 * 1024 * 1024,
   checkMarker: 'RAVEN_OK_V2',
   mlKemSeedDomain: 'REIVEN_MLKEM_SEED_V1',
   encryptionProfiles: ARGON2_PROFILES,

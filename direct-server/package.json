@@ -1,0 +1,10 @@
+{
+  "name": "reiven-direct-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Direct standalone server for Reiven",
+  "scripts": {
+    "start": "node server.mjs"
+  }
+}

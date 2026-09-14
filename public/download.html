@@ -3,38 +3,73 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex, nofollow, noarchive" />
+    <link rel="canonical" href="https://reiven.io/" />
     <title>Reiven.io Download</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <main class="container">
-      <h1>Reiven.io Download</h1>
-      <p class="muted">Quantum resistant encrypted file sharing for the masses</p>
-      <p id="file-meta" class="muted">Loading file info...</p>
+    <main class="app-shell">
+      <header class="site-header">
+        <a class="brand-mark" href="/">reiven.io</a>
+        <nav class="site-nav" aria-label="Primary">
+          <a class="nav-link" href="/">share</a>
+          <a class="nav-link active" href="/#download" aria-current="page">download</a>
+          <a class="nav-link" href="/#cli">cli</a>
+        </nav>
+      </header>
 
-      <form id="download-form" class="card">
-        <label>
-          Password
-          <input type="password" id="password-input" required />
-        </label>
+      <section class="page-panel download-shell">
+        <section class="utility-card download-detail-card">
+          <form id="download-form" class="download-form download-detail-form">
+            <div class="download-detail-head">
+              <p class="share-title">download</p>
+              <p id="file-meta" class="download-meta">Loading file info...</p>
+            </div>
 
-        <button type="submit" id="download-btn">Download & Decrypt</button>
-        <button type="button" id="receiver-delete-btn" class="hidden" style="margin-top:10px;">Delete File</button>
-      </form>
+            <div class="field-block download-code-block">
+              <label class="field-label download-field-label" for="password-input">password</label>
+              <div class="download-password-shell">
+                <input type="password" id="password-input" class="download-password-input" required />
+                <button type="button" id="password-toggle-btn" class="download-password-toggle" aria-label="Show password">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M2.5 12c2.2-3.6 5.3-5.4 9.5-5.4s7.3 1.8 9.5 5.4c-2.2 3.6-5.3 5.4-9.5 5.4S4.7 15.6 2.5 12Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                    <circle cx="12" cy="12" r="3.1" fill="none" stroke="currentColor" stroke-width="1.6"/>
+                  </svg>
+                </button>
+              </div>
+              <small class="field-note download-field-note">Enter the decryption password.</small>
+            </div>
 
-      <section id="status" class="card hidden"></section>
+            <button type="submit" id="download-btn" class="cta-btn download-open-btn">Open</button>
+            <button type="button" id="receiver-delete-btn" class="hidden cta-btn download-delete-btn">Delete file</button>
+          </form>
+        </section>
 
-      <section id="note-card" class="card hidden">
-        <label>
-          Note
-          <textarea id="note-output" rows="10" readonly></textarea>
-        </label>
-        <button type="button" id="note-download-btn" class="hidden" style="margin-top:10px;">Download Note</button>
+        <section id="status" class="utility-card download-secondary-card hidden">
+          <p class="share-title">download status</p>
+          <div id="status-message" class="share-inline-note download-status-note">Loading stuff here</div>
+        </section>
+
+        <section id="note-card" class="utility-card note-detail-card hidden">
+          <div class="complete-block">
+            <p class="share-title">decrypted note</p>
+            <label class="field-block">
+              <span class="field-label">note</span>
+              <textarea id="note-output" rows="10" readonly></textarea>
+            </label>
+            <button type="button" id="note-download-btn" class="hidden cta-btn download-open-btn">Download note</button>
+          </div>
+        </section>
+
+        <section id="slow-warning" class="utility-card warning hidden">
+          Cryptographic operations are slow on your device. Make sure JavaScript JIT is enabled in your browser for this website.
+        </section>
       </section>
 
-      <section id="slow-warning" class="card warning hidden">
-        Criptographic operations are slow on your device. Make sure Javascript JIT is enabled in your browser for this website!
-      </section>
+      <footer class="footer-note">
+        Server sees only ciphertext · AES-256-GCM · Argon2id · No accounts · Zero retention
+      </footer>
     </main>
 
     <script src="/download.js" defer></script>

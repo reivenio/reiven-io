@@ -12,7 +12,7 @@ RAM-only encrypted blob backend for Reiven.
 - `GET /api/file/:id/download`
 - `DELETE /api/file/:id`
 
-All `/api/*` routes require bearer auth when `MEM_BEARER_TOKEN` is set.
+All `/api/*` routes require bearer auth. `MEM_ALLOW_AUTH_BYPASS=1` exists only for isolated local development.
 
 ## Environment
 
@@ -21,7 +21,8 @@ All `/api/*` routes require bearer auth when `MEM_BEARER_TOKEN` is set.
 - `MEM_PART_SIZE_BYTES` (default `5242880`)
 - `MEM_UPLOAD_MAX_AGE_MS` (default `7200000`)
 - `MEM_CLEANUP_INTERVAL_MS` (default `60000`)
-- `MEM_BEARER_TOKEN` (recommended)
+- `MEM_BEARER_TOKEN` (required unless `MEM_ALLOW_AUTH_BYPASS=1`)
+- `MEM_ALLOW_AUTH_BYPASS` (set to `1` only for isolated local development)
 
 ## Run Locally
 

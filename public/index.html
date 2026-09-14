@@ -3,7 +3,23 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Reiven.io</title>
+    <meta
+      name="description"
+      content="Reiven.io provides zero-knowledge, quantum-safe encrypted notes and files with no accounts and no logs."
+    />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://reiven.io/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://reiven.io/" />
+    <meta property="og:title" content="Reiven.io — Zero-knowledge encryption" />
+    <meta
+      property="og:description"
+      content="Quantum-safe encrypted notes and files. No accounts, no logs."
+    />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Reiven.io — Zero-knowledge encryption" />
+    <meta name="twitter:description" content="Quantum-safe encrypted notes and files. No accounts, no logs." />
+    <title>Reiven.io — Zero-knowledge encryption</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body class="app-loading">
@@ -27,18 +43,12 @@
 
       <section id="panel-home" class="page-panel home-panel">
         <section class="home-hero">
-          <img
-            class="home-hero-image"
-            src="https://www.figma.com/api/mcp/asset/22c96f95-48d9-4abf-8b43-eff65b142c5a"
-            alt=""
-          />
           <div class="home-copy">
-            <p class="microcopy">file sharing for the masses</p>
-            <h1 class="home-title">Quantum resistant encrypted</h1>
+            <h1 class="home-title">Zero-knowledge encryption</h1>
             <p class="home-body">
-              Encrypted, self-destructing notes and E2EE chat.
+              Quantum-safe encrypted notes and files.
               <br />
-              One view, then gone. No accounts. No logs.
+              No accounts, no logs.
             </p>
             <button id="hero-share-btn" class="cta-btn" type="button">Create a secret note</button>
           </div>
@@ -51,11 +61,11 @@
             <div class="how-heading">
               <span class="how-index">01</span>
               <span class="how-separator">|</span>
-              <h3>Derive the master key</h3>
+              <h3>Derive the password key</h3>
             </div>
             <div class="how-body">
-              <p>Your browser uses Argon2id to transform your input into a high-entropy Key Encryption Key (KEK) seed.</p>
-              <div class="spec-note">Specs: PIM=100, Iterations=4, Memory=64MB, Parallelism=1.</div>
+              <p>Your browser runs Argon2id on your password and PIM to derive a Key Encryption Key (KEK) seed. Strong passwords still matter.</p>
+              <div class="spec-note">Standard: PIM=100, Iterations=4, Memory=64MB. Paranoid: Iterations=6, Memory=128MB.</div>
             </div>
           </article>
 
@@ -63,12 +73,12 @@
             <div class="how-heading">
               <span class="how-index">02</span>
               <span class="how-separator">|</span>
-              <h3>Generate post-quantum armor</h3>
+              <h3>Add the ML-KEM layer</h3>
             </div>
             <div class="how-body">
               <p>
-                A deterministic ML-KEM-768 keypair is derived from the seed. The Data Encryption Key (DEK) is then securely
-                wrapped via an ML-KEM shared secret, ensuring protection against future quantum threats.
+                A deterministic ML-KEM-768 keypair is derived from the seed. A random Data Encryption Key (DEK) is wrapped via
+                an ML-KEM shared secret, so plaintext keys never leave your device.
               </p>
             </div>
           </article>
@@ -77,12 +87,12 @@
             <div class="how-heading">
               <span class="how-index">03</span>
               <span class="how-separator">|</span>
-              <h3>Seal the payload</h3>
+              <h3>Encrypt in chunks</h3>
             </div>
             <div class="how-body">
               <p>
-                The file is locked using AES-256-GCM with a random 256-bit DEK. This ensures both the confidentiality and the
-                integrity of your data before it ever leaves your device.
+                Notes and files are encrypted before upload with AES-256-GCM, using a random 256-bit DEK and unique per-chunk
+                nonces for large files. The server stores only ciphertext.
               </p>
             </div>
           </article>
@@ -92,7 +102,7 @@
       <section id="panel-share" class="page-panel hidden">
         <form id="upload-form" class="share-layout">
           <section class="share-card">
-            <div class="share-main">
+            <div class="share-main share-editor-main">
               <div class="share-left">
                 <p class="share-title">share</p>
 
@@ -105,19 +115,19 @@
                   <input id="content-type-input" type="hidden" value="file" />
                 </div>
 
-                <label class="field-block">
-                  <span class="field-label">encryption key</span>
+                <div class="field-block">
+                  <label class="field-label" for="password-input">encryption key</label>
                   <div class="input-shell">
                     <input type="password" id="password-input" minlength="6" required />
-                    <img
-                      class="input-icon"
-                      src="https://www.figma.com/api/mcp/asset/f961165a-526c-41ae-af93-8f1abe4dc280"
-                      alt=""
-                      aria-hidden="true"
-                    />
+                    <button type="button" id="password-toggle-btn" class="input-icon-btn" aria-label="Show encryption key" aria-pressed="false">
+                      <svg class="input-icon" viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M2.5 12c2.2-3.6 5.3-5.4 9.5-5.4s7.3 1.8 9.5 5.4c-2.2 3.6-5.3 5.4-9.5 5.4S4.7 15.6 2.5 12Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                        <circle cx="12" cy="12" r="3.1" fill="none" stroke="currentColor" stroke-width="1.6"/>
+                      </svg>
+                    </button>
                   </div>
-                  <small class="field-note">Min 32 chars.</small>
-                </label>
+                  <small id="password-note" class="field-note">Min 32 chars.</small>
+                </div>
 
                 <label class="field-block">
                   <span class="field-label">encryption profile</span>
@@ -126,84 +136,117 @@
                       <option value="standard" selected>Standard</option>
                       <option value="paranoid">Paranoid</option>
                     </select>
-                    <img
-                      class="input-icon"
-                      src="https://www.figma.com/api/mcp/asset/afb4736e-67b1-4706-857e-d12358fbaac3"
-                      alt=""
-                      aria-hidden="true"
-                    />
+                    <svg class="input-icon" viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M7 10.5 12 15l5-4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
                   </div>
                   <small class="field-note">Paranoid increases Argon2 work factor and can be much slower on weak devices.</small>
                 </label>
 
                 <label class="toggle-row">
-                  <input type="checkbox" id="allow-receiver-delete-input" />
+                  <input type="checkbox" id="allow-receiver-delete-input" checked />
                   <span class="toggle-copy">
                     <strong>Allow receiver to delete</strong>
                     <small>If enabled, receiver sees a Delete File button on the download page.</small>
                   </span>
                 </label>
 
-                <button type="submit" id="upload-btn" class="cta-btn share-cta">Encrypt & Upload</button>
+                <label class="toggle-row">
+                  <input type="checkbox" id="qr-mode-input" />
+                  <span class="toggle-copy">
+                    <strong>QR Mode</strong>
+                    <small>Generate a random in-browser key and QR auto-download link.</small>
+                  </span>
+                </label>
               </div>
 
               <div class="share-right">
                 <label id="file-input-wrap" class="field-block upload-block">
-                  <span class="field-label">packet notes</span>
+                  <span class="field-label">PAYLOAD</span>
                   <div class="upload-drop">
-                    <input type="file" id="file-input" required />
+                    <input type="file" id="file-input" />
                     <div class="upload-drop-inner">
-                      <img
-                        class="upload-icon"
-                        src="https://www.figma.com/api/mcp/asset/bae178be-b76b-4c5a-b7e3-f88c76fac0c9"
-                        alt=""
-                        aria-hidden="true"
-                      />
-                      <span>Select a file to upload</span>
+                      <svg class="upload-icon" viewBox="0 0 64 64" aria-hidden="true">
+                        <rect x="10" y="18" width="44" height="32" rx="6" fill="none" stroke="currentColor" stroke-width="2.5"/>
+                        <path d="M32 42V22m0 0-8 8m8-8 8 8" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
+                      <span id="file-drop-text">Select or drop a file to upload</span>
                     </div>
                   </div>
                 </label>
                 <label id="note-input-wrap" class="field-block note-block">
-                  <span id="note-input-label" class="field-label">packet notes</span>
-                  <textarea id="note-input" rows="12" placeholder="// add operational notes here..."></textarea>
+                  <span id="note-input-label" class="field-label">PAYLOAD</span>
+                  <textarea id="note-input" rows="12"></textarea>
                 </label>
-                <div class="share-inline-note">Loading stuff here</div>
+                <div id="status" class="share-inline-note hidden">Loading stuff here</div>
               </div>
+
+              <button type="submit" id="upload-btn" class="cta-btn share-cta">Encrypt & Upload</button>
             </div>
           </section>
 
           <section class="security-strip">
             <div class="security-strip-head">
               <strong id="security-profile-label">Security profile: Standard</strong>
-              <span id="benchmark-status">Running browser benchmark...</span>
+              <span id="benchmark-status">Preparing in-browser encryption...</span>
             </div>
-            <p id="security-estimate">Estimated encryption time on your device: calculating...</p>
+            <p id="security-estimate">Estimated key setup time on this device: calculating...</p>
             <p id="security-details">Encryption details are loading...</p>
-            <p id="bruteforce-estimate">Brute-force estimate will appear here.</p>
+            <p id="bruteforce-estimate">Password strength estimate appears after you type a password.</p>
           </section>
         </form>
 
-        <section id="status" class="status-panel hidden"></section>
-
         <section id="links" class="share-layout hidden">
-          <section class="share-card upload-complete-card">
+          <section class="share-card upload-complete-summary">
+            <div class="upload-complete-summary-body">
+              <p class="share-title">upload complete.</p>
+              <p id="upload-complete-expiry" class="upload-complete-expiry">Expires at --</p>
+            </div>
+          </section>
+
+          <section class="share-card upload-complete-details">
             <div class="share-main complete-main">
-              <div class="share-left">
-                <p class="share-title">upload complete</p>
-                <p class="field-note complete-note">Share the password separately from the link or access code.</p>
-              </div>
               <div class="share-right complete-links">
-                <div class="result-row">
-                  <p><strong>Code:</strong> <span id="access-code"></span></p>
-                  <button id="copy-code-btn" type="button" class="mini-btn">Copy</button>
-                </div>
-                <div class="result-row">
-                  <p><strong>Download:</strong> <a id="download-link" href="#"></a></p>
-                  <button id="copy-download-btn" type="button" class="mini-btn">Copy</button>
-                </div>
-                <div class="result-row">
-                  <p><strong>Delete:</strong> <a id="delete-link" href="#"></a></p>
-                  <button id="copy-delete-btn" type="button" class="mini-btn">Copy</button>
+                <div class="complete-block">
+                  <p class="share-title">share details</p>
+
+                  <div class="complete-notes">
+                    <div class="result-note">
+                      <div class="result-copy">
+                        <p class="field-label">code</p>
+                        <p id="access-code" class="result-value"></p>
+                      </div>
+                      <button id="copy-code-btn" type="button" class="cta-btn mini-cta-btn">Copy</button>
+                    </div>
+
+                    <div class="result-note">
+                      <div class="result-copy">
+                        <p class="field-label">download</p>
+                        <a id="download-link" class="result-value result-link" href="#"></a>
+                      </div>
+                      <button id="copy-download-btn" type="button" class="cta-btn mini-cta-btn">Copy</button>
+                    </div>
+
+                    <div id="qr-row" class="result-note qr-result hidden">
+                      <div class="result-copy">
+                        <p class="field-label">QR Mode</p>
+                        <div id="qr-code" class="qr-code" aria-label="QR auto-download link"></div>
+                        <a id="qr-link" class="result-value result-link" href="#"></a>
+                        <small class="field-note">The QR link contains the decryption key in the browser-only URL fragment. Treat it like the secret.</small>
+                      </div>
+                      <button id="copy-qr-btn" type="button" class="cta-btn mini-cta-btn">Copy</button>
+                    </div>
+
+                    <div id="delete-row" class="result-note">
+                      <div class="result-copy">
+                        <p class="field-label">delete</p>
+                        <a id="delete-link" class="result-value result-link" href="#"></a>
+                      </div>
+                      <button id="copy-delete-btn" type="button" class="cta-btn mini-cta-btn">Copy</button>
+                    </div>
+                  </div>
+
+                  <p id="complete-note" class="field-note complete-note">Share the download URL/code and password separately.</p>
                 </div>
               </div>
             </div>
@@ -211,61 +254,82 @@
         </section>
       </section>
 
-      <section id="panel-download" class="page-panel hidden">
-        <section class="utility-card">
-          <p class="share-title">download</p>
-          <form id="code-download-form" class="utility-form">
-            <label class="field-block">
-              <span class="field-label">file code</span>
-              <input type="text" id="code-input" placeholder="12-34-56-78" required />
-              <small class="field-note">Enter the 8-digit code. Dashes are optional.</small>
-            </label>
-            <button type="submit" class="cta-btn share-cta">Open download</button>
+      <section id="panel-download" class="page-panel download-shell hidden">
+        <section class="utility-card download-card">
+          <form id="code-download-form" class="download-form">
+            <p class="share-title">download</p>
+
+            <div class="field-block download-code-block">
+              <label class="field-label download-field-label" for="code-segment-1">file code</label>
+              <div class="download-code-grid" role="group" aria-label="File code">
+                <input id="code-segment-1" class="download-code-input" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="2" placeholder="" />
+                <input id="code-segment-2" class="download-code-input" type="text" inputmode="numeric" maxlength="2" placeholder="" />
+                <input id="code-segment-3" class="download-code-input" type="text" inputmode="numeric" maxlength="2" placeholder="" />
+                <input id="code-segment-4" class="download-code-input" type="text" inputmode="numeric" maxlength="2" placeholder="" />
+              </div>
+              <input type="hidden" id="code-input" required />
+              <small class="field-note download-field-note">Enter the 8-digit code (dashes optional)</small>
+            </div>
+
+            <button type="submit" class="cta-btn download-open-btn">Open</button>
           </form>
         </section>
-        <section id="code-status" class="status-panel hidden"></section>
+        <section id="code-status" class="utility-card download-secondary-card hidden"></section>
       </section>
 
       <section id="panel-cli" class="page-panel hidden">
         <section class="utility-card cli-card">
-          <p class="share-title">cli</p>
-          <div class="cli-code-wrap">
-            <div class="cli-code-head">Install</div>
-            <pre class="cli-code"><code># From the project root:
+          <div class="cli-layout">
+            <div class="cli-sidebar">
+              <p class="share-title">reiven cli</p>
+              <p class="field-note cli-body-copy">Install and use the terminal client to upload or download encrypted files.</p>
+              <div class="spec-note cli-note">
+                Info: Use the same password rules as the web flow. CLI prompts mask password input.
+              </div>
+            </div>
+            <div class="cli-content">
+              <div class="cli-code-wrap">
+                <div class="cli-code-head">Install</div>
+                <pre class="cli-code"><code># From the project root:
 cd reiven-cli
 npm install
 npm link
 
 # Verify command:
 reiven --help</code></pre>
-          </div>
-          <div class="cli-code-wrap">
-            <div class="cli-code-head">Upload</div>
-            <pre class="cli-code"><code>reiven put secret.pdf
+              </div>
+              <div class="cli-code-wrap cli-code-wrap-highlight">
+                <div class="cli-code-head">Upload</div>
+                <pre class="cli-code"><code># Upload a file (prompts for password):
+reiven put secret.pdf
 
 Password: *********
 
 Access code: *** 80-94-86-60 ***
-Download URL: https://reiven.io/download.html?id=b05b053a745aed1dfb
+Download URL: https://reiven.io/download?id=b05b053a745aed1dfb
 Delete URL: https://reiven.io/delete/b05b053a745aed1dfb/d8b97cbd72640936c9800b3289269f6f7274c7d631d7af6d
 Expires at: 2026-02-27T07:02:58.120Z</code></pre>
-          </div>
-          <div class="cli-code-wrap">
-            <div class="cli-code-head">Download</div>
-            <pre class="cli-code"><code>reiven get 80948660
+              </div>
+              <div class="cli-code-wrap">
+                <div class="cli-code-head">Download</div>
+                <pre class="cli-code"><code># Download by access code:
+reiven get 80948660
 
 Password: *********
 
 Saved: /Users/reiven/Documents/secret.pdf</code></pre>
+              </div>
+            </div>
           </div>
         </section>
       </section>
 
       <footer class="footer-note">
-        Server sees only ciphertext · AES-256-GCM · PBKDF2 · No accounts · Zero retention
+        Server sees only ciphertext · AES-256-GCM · Argon2id · No accounts · Zero retention
       </footer>
     </main>
 
+    <script src="/vendor/qrcode.min.js" defer></script>
     <script src="/upload.js" defer></script>
   </body>
 </html>

@@ -1,6 +1,6 @@
 # Reiven.io (Cloudflare)
 
-Transparent ecnryption for the masses. Browser-side encrypted file sharing proof of concept using Cloudflare Workers + Ramdisk + D1.
+Transparent encryption for the masses. Browser-side encrypted file sharing proof of concept using Cloudflare Workers + Ramdisk + D1.
 
 ## Architecture
 
@@ -72,7 +72,7 @@ npm run deploy
 ## Environment variables (optional)
 
 - `FILE_TTL_HOURS` (default `24`)
-- `MAX_FILE_SIZE_MB` (default `2048`)
+- `MAX_FILE_SIZE_MB` (default `10240`)
 - `STORAGE_BACKEND` (default `ramdisk`; set to `r2` to switch back)
 - `MEM_STORAGE_BASE_URL` (required for `ramdisk` backend)
 - `MEM_STORAGE_BEARER_TOKEN` (auth token for mem-server)

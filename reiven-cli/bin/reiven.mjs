@@ -10,6 +10,7 @@ import { ml_kem768 } from '@noble/post-quantum/ml-kem.js';
 import { ENCRYPTION_CONFIG } from '../../shared/encryption-config.mjs';
 
 const MAGIC = ENCRYPTION_CONFIG.magic;
+const LEGACY_FORMAT_VERSION = 4;
 const FORMAT_VERSION = ENCRYPTION_CONFIG.formatVersion;
 const SALT_LEN = ENCRYPTION_CONFIG.saltLen;
 const IV_LEN = ENCRYPTION_CONFIG.ivLen;
@@ -17,12 +18,14 @@ const CHECK_IV_LEN = ENCRYPTION_CONFIG.checkIvLen;
 const WRAP_IV_LEN = ENCRYPTION_CONFIG.wrapIvLen;
 const HEADER_FIXED_LEN = ENCRYPTION_CONFIG.headerFixedLen;
 const HEADER_PROBE_BYTES = ENCRYPTION_CONFIG.headerProbeBytes;
+const CHUNK_PLAIN_SIZE = ENCRYPTION_CONFIG.chunkPlainSize;
 const DEFAULT_PIM = ENCRYPTION_CONFIG.defaultPim;
 const CHECK_MARKER = ENCRYPTION_CONFIG.checkMarker;
 const ML_KEM_SEED_DOMAIN = ENCRYPTION_CONFIG.mlKemSeedDomain;
 const ARGON2_FIXED_PROFILE = ENCRYPTION_CONFIG.argon2FixedProfile || { time: 4, mem: 65536, parallelism: 1 };
 const MAGIC_BYTES = new TextEncoder().encode(MAGIC);
 const DEK_LEN = 32;
+const AUTH_TAG_LEN = 16;
 const DEFAULT_PART_SIZE_BYTES = 50 * 1024 * 1024;
 const UPLOAD_PROGRESS_CHUNK_BYTES = 5 * 1024 * 1024;
 const REQUEST_STREAM_CHUNK_BYTES = 256 * 1024;
@@ -258,7 +261,33 @@ const buildCheckPayload = (originalName) => {
   return new TextEncoder().encode(JSON.stringify(payload));
 };
 
-const buildEnvelope = (salt, checkIv, checkCiphertext, pqCiphertext, wrapIv, wrappedDek, fileIv, ciphertext, argonParams) => {
+const concatUint8 = (...arrays) => {
+  const total = arrays.reduce((sum, arr) => sum + arr.length, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const arr of arrays) {
+    out.set(arr, offset);
+    offset += arr.length;
+  }
+  return out;
+};
+
+const buildChunkIv = (baseIv, chunkIndex) => {
+  const iv = new Uint8Array(IV_LEN);
+  iv.set(baseIv.slice(0, 4), 0);
+  const view = new DataView(iv.buffer);
+  const high = Math.floor(chunkIndex / 0x100000000);
+  const low = chunkIndex >>> 0;
+  view.setUint32(4, high, false);
+  view.setUint32(8, low, false);
+  return iv;
+};
+
+const getChunkPlainSize = () => Math.max(1024 * 1024, Math.floor(Number(CHUNK_PLAIN_SIZE) || (8 * 1024 * 1024)));
+
+const getHeaderFixedLenForVersion = (version) => (version >= FORMAT_VERSION ? HEADER_FIXED_LEN : 24);
+
+const buildEnvelopeHeader = (salt, checkIv, checkCiphertext, pqCiphertext, wrapIv, wrappedDek, fileIv, argonParams, chunkPlainSize) => {
   const header = new Uint8Array(HEADER_FIXED_LEN);
   header.set(MAGIC_BYTES, 0);
   header[7] = FORMAT_VERSION;
@@ -273,28 +302,15 @@ const buildEnvelope = (salt, checkIv, checkCiphertext, pqCiphertext, wrapIv, wra
   header[19] = WRAP_IV_LEN;
   view.setUint16(20, wrappedDek.length, false);
   view.setUint16(22, pqCiphertext.length, false);
-
-  const total = header.length
-    + salt.length
-    + checkIv.length
-    + checkCiphertext.length
-    + pqCiphertext.length
-    + wrapIv.length
-    + wrappedDek.length
-    + fileIv.length
-    + ciphertext.length;
-  const envelope = new Uint8Array(total);
-
-  let offset = 0;
-  for (const segment of [header, salt, checkIv, checkCiphertext, pqCiphertext, wrapIv, wrappedDek, fileIv, ciphertext]) {
-    envelope.set(segment, offset);
-    offset += segment.length;
+  if (HEADER_FIXED_LEN >= 28) {
+    view.setUint32(24, chunkPlainSize, false);
   }
-  return envelope;
+
+  return concatUint8(header, salt, checkIv, checkCiphertext, pqCiphertext, wrapIv, wrappedDek, fileIv);
 };
 
 const parseEnvelopeHeader = (bytes) => {
-  if (bytes.length < HEADER_FIXED_LEN) {
+  if (bytes.length < getHeaderFixedLenForVersion(LEGACY_FORMAT_VERSION)) {
     throw new Error('Encrypted header is incomplete.');
   }
 
@@ -304,9 +320,10 @@ const parseEnvelopeHeader = (bytes) => {
   }
 
   const version = bytes[7];
-  if (version !== FORMAT_VERSION) {
+  if (version !== LEGACY_FORMAT_VERSION && version !== FORMAT_VERSION) {
     throw new Error('Unsupported file format version.');
   }
+  const headerFixedLen = getHeaderFixedLenForVersion(version);
 
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const saltLen = bytes[8];
@@ -334,7 +351,7 @@ const parseEnvelopeHeader = (bytes) => {
   const parallelism = bytes[11];
   const mem = view.getUint32(12, false);
 
-  const saltStart = HEADER_FIXED_LEN;
+  const saltStart = headerFixedLen;
   const checkIvStart = saltStart + saltLen;
   const checkCipherStart = checkIvStart + checkIvLen;
   const pqCipherStart = checkCipherStart + checkCipherLen;
@@ -342,18 +359,22 @@ const parseEnvelopeHeader = (bytes) => {
   const wrappedDekStart = wrapIvStart + wrapIvLen;
   const fileIvStart = wrappedDekStart + wrappedDekLen;
   const headerSize = fileIvStart + ivLen;
+  const chunkPlainSize = version >= FORMAT_VERSION ? view.getUint32(24, false) : 0;
 
   if (bytes.length < headerSize) {
     throw new Error('Encrypted header is incomplete.');
   }
 
   return {
+    version,
     salt: bytes.slice(saltStart, checkIvStart),
     checkIv: bytes.slice(checkIvStart, checkCipherStart),
     checkCiphertext: bytes.slice(checkCipherStart, pqCipherStart),
     pqCiphertext: bytes.slice(pqCipherStart, wrapIvStart),
     wrapIv: bytes.slice(wrapIvStart, wrappedDekStart),
     wrappedDek: bytes.slice(wrappedDekStart, fileIvStart),
+    iv: bytes.slice(fileIvStart, headerSize),
+    chunkPlainSize,
     argonParams: clampArgonParams({ time, mem, parallelism }),
     headerSize,
   };
@@ -369,7 +390,7 @@ const parseEnvelope = (bytes) => {
 
   return {
     ...header,
-    iv: bytes.slice(ivStart, ivStart + IV_LEN),
+    iv: header.iv || bytes.slice(ivStart, ivStart + IV_LEN),
     ciphertext: bytes.slice(cipherStart),
   };
 };
@@ -443,6 +464,7 @@ const encryptPayload = async (fileBytes, password, pim, originalName) => {
   const wrapIv = randomBytes(WRAP_IV_LEN);
   const fileIv = randomBytes(IV_LEN);
   const argonParams = paramsWithSecurity();
+  const chunkPlainSize = getChunkPlainSize();
 
   const kekBytes = await deriveKek(password, pim, salt, argonParams);
   const rawDek = randomBytes(DEK_LEN);
@@ -473,24 +495,30 @@ const encryptPayload = async (fileBytes, password, pim, originalName) => {
     pqKey,
     rawDek
   ));
-  const ciphertext = new Uint8Array(await subtle.encrypt(
-    { name: 'AES-GCM', iv: fileIv },
-    fileKey,
-    fileBytes
-  ));
+  const chunks = [];
+  for (let offset = 0, chunkIndex = 0; offset < fileBytes.length; offset += chunkPlainSize, chunkIndex += 1) {
+    const chunkBytes = fileBytes.slice(offset, Math.min(offset + chunkPlainSize, fileBytes.length));
+    chunks.push(new Uint8Array(await subtle.encrypt(
+      { name: 'AES-GCM', iv: buildChunkIv(fileIv, chunkIndex) },
+      fileKey,
+      chunkBytes
+    )));
+  }
+
+  const header = buildEnvelopeHeader(
+    salt,
+    checkIv,
+    checkCiphertext,
+    pqCiphertext,
+    wrapIv,
+    wrappedDek,
+    fileIv,
+    argonParams,
+    chunkPlainSize
+  );
 
   return {
-    envelopeBytes: buildEnvelope(
-      salt,
-      checkIv,
-      checkCiphertext,
-      pqCiphertext,
-      wrapIv,
-      wrappedDek,
-      fileIv,
-      ciphertext,
-      argonParams
-    ),
+    envelopeBytes: concatUint8(header, ...chunks),
     argonParams,
   };
 };
@@ -567,14 +595,45 @@ const decryptPayload = async (encryptedBytes, password, pim) => {
     );
     const checkInfo = parseCheckPayload(checkPlain);
 
-    const plaintext = await subtle.decrypt(
-      { name: 'AES-GCM', iv: parsed.iv },
-      fileKey,
-      parsed.ciphertext
-    );
+    let plaintextBytes;
+    if (parsed.chunkPlainSize > 0) {
+      const chunks = [];
+      let totalPlaintextLength = 0;
+      let offset = 0;
+      let chunkIndex = 0;
+      const fullChunkCipherSize = parsed.chunkPlainSize + AUTH_TAG_LEN;
+
+      while (offset < parsed.ciphertext.length) {
+        const remaining = parsed.ciphertext.length - offset;
+        const currentCipherSize = remaining > fullChunkCipherSize ? fullChunkCipherSize : remaining;
+        const encryptedChunk = parsed.ciphertext.slice(offset, offset + currentCipherSize);
+        const plainChunk = new Uint8Array(await subtle.decrypt(
+          { name: 'AES-GCM', iv: buildChunkIv(parsed.iv, chunkIndex) },
+          fileKey,
+          encryptedChunk
+        ));
+        chunks.push(plainChunk);
+        totalPlaintextLength += plainChunk.length;
+        offset += currentCipherSize;
+        chunkIndex += 1;
+      }
+
+      plaintextBytes = new Uint8Array(totalPlaintextLength);
+      let writeOffset = 0;
+      for (const chunk of chunks) {
+        plaintextBytes.set(chunk, writeOffset);
+        writeOffset += chunk.length;
+      }
+    } else {
+      plaintextBytes = new Uint8Array(await subtle.decrypt(
+        { name: 'AES-GCM', iv: parsed.iv },
+        fileKey,
+        parsed.ciphertext
+      ));
+    }
 
     return {
-      plaintext: new Uint8Array(plaintext),
+      plaintext: plaintextBytes,
       originalName: checkInfo.originalName,
     };
   } catch {
