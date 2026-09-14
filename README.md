@@ -2,18 +2,7 @@
 
 Zero-knowledge encrypted notes and files. No accounts, no logs.
 
-Reiven is a browser-first encrypted sharing service. The active production deployment is a standalone Node.js server behind a normal HTTPS reverse proxy, not a Cloudflare Worker deployment.
-
-## Current Production Path
-
-- Public site: `https://reiven.io/`
-- App directory: `/opt/reiven`
-- Data directory: `/srv/reiven`
-- Service: `reiven-direct`
-- Runtime entrypoint: `direct-server/server.mjs`
-- Reverse proxy: Caddy or any HTTPS-capable proxy to `127.0.0.1:8080`
-
-Cloudflare Worker, D1, R2, Wrangler, and mem-server files remain in the repository for reference and migration history, but they are not the current production architecture.
+Reiven is a browser-first encrypted sharing service. Payloads are encrypted before upload, held by the server in process memory only, and lost on server restart, deploy, crash, or expiry.
 
 ## What Reiven Does
 
@@ -22,12 +11,12 @@ Cloudflare Worker, D1, R2, Wrangler, and mem-server files remain in the reposito
 - Generates 8-digit access codes such as `12-34-56-78`.
 - Provides download links and optional receiver-side delete links.
 - Expires uploaded ciphertext automatically based on server TTL.
-- Supports QR Mode, where a random browser-generated key is embedded in a QR/link fragment for direct recipient download.
+- Supports QR Mode with a random browser-generated key embedded in the URL fragment.
 - Serves an indexable public landing page while marking private download pages as `noindex`.
 
 ## Security Model
 
-Reiven protects payload contents client-side. The server should be treated as untrusted storage for encrypted blobs.
+Reiven protects payload contents client-side. The server should be treated as untrusted, ephemeral transport memory.
 
 - Passwords and QR Mode random keys are generated or entered client-side and are not submitted to the server.
 - File and note payloads are encrypted client-side before upload.
@@ -36,9 +25,12 @@ Reiven protects payload contents client-side. The server should be treated as un
 - Standard profile uses Argon2id `time=4`, `memory=64MB`, `parallelism=1`, `PIM=100`.
 - Paranoid profile uses Argon2id `time=6`, `memory=128MB`, `parallelism=1`, `PIM=100`.
 - Chunk payload encryption uses unique per-chunk AES-GCM nonces.
-- The server stores ciphertext plus operational metadata: file ID, encrypted size, expiry, delete token, receiver-delete flag, note flag, access-code hash, download count, and upload filename.
+- The server stores ciphertext only in process memory, never in application-managed files.
+- The server also keeps operational metadata in process memory: file ID, encrypted size, expiry, delete token, receiver-delete flag, note flag, access-code hash, download count, and upload filename.
 - If filenames are sensitive, rename files before sharing.
-- Password strength remains critical; weak passwords can be brute-forced offline from ciphertext.
+- Password strength remains critical; weak passwords can still be brute-forced offline from ciphertext.
+
+For a strict “never touches disk” deployment, disable swap and core dumps on the host. The app does not intentionally write ciphertext or metadata to disk, but operating systems can otherwise page memory or persist process dumps outside the app’s control.
 
 QR Mode creates a random key in the browser and appends it to the download URL fragment. URL fragments are not sent in normal HTTP requests, but the full QR/link is the secret and can be exposed through browser history, screenshots, chat previews, or recipient devices.
 
@@ -58,22 +50,21 @@ direct-server/server.mjs
     +-- public/ static web app
     +-- public/vendor/ vendored crypto and QR browser bundles
     +-- shared/encryption-config.mjs shared crypto constants
-    +-- /srv/reiven/files encrypted payload blobs
-    +-- /srv/reiven/metadata.json metadata, hashes, tokens, expiry
+    +-- process memory: encrypted payloads
+    +-- process memory: metadata, code hashes, delete tokens, upload sessions
 ```
 
-### Direct Server Responsibilities
+## Server Responsibilities
 
 - Serves the static web app from `public/`.
-- Exposes the `/api/*` upload, download, metadata, and delete endpoints.
-- Receives encrypted upload parts and assembles final encrypted blobs.
-- Maintains upload sessions in memory.
-- Stores metadata in a local JSON database.
-- Deletes expired records and orphaned upload parts during cleanup.
+- Exposes upload, download, metadata, and delete endpoints.
+- Receives encrypted upload parts and keeps them in process memory.
+- Assembles completed uploads into memory-backed encrypted payload records.
+- Cleans expired files and abandoned upload sessions from memory.
 - Sends security headers including CSP, `X-Content-Type-Options`, `Referrer-Policy`, and `Permissions-Policy`.
 - Redirects `/index.html` to `/` and `/download.html` to `/download`.
 
-The app still encrypts in chunks even without Cloudflare limits. Chunking keeps browser memory lower, supports progress updates, and allows range-based download/decryption for large files.
+The app still encrypts in chunks. Chunking keeps browser memory lower, supports progress updates, and allows range-based download/decryption for large files.
 
 ## Repository Layout
 
@@ -82,10 +73,7 @@ The app still encrypts in chunks even without Cloudflare limits. Chunking keeps 
 - `direct-server/` — standalone production Node.js server.
 - `shared/encryption-config.mjs` — shared encryption parameters used by web and CLI.
 - `reiven-cli/` — terminal client for uploads and downloads.
-- `src/worker.js` — legacy Cloudflare Worker implementation.
-- `mem-server/` — legacy volatile storage backend used by the Worker path.
-- `migrations/` — legacy Cloudflare D1 schema migrations.
-- `wrangler.toml` — legacy Cloudflare configuration.
+- `reiven-ps/` — helper documentation and scripts for desktop integration work.
 
 ## Prerequisites
 
@@ -100,8 +88,9 @@ The app still encrypts in chunks even without Cloudflare limits. Chunking keeps 
 - Linux server with SSH access.
 - Node.js 18 or newer at `/usr/bin/node`.
 - Caddy, nginx, or another HTTPS reverse proxy.
-- Persistent writable data directory, normally `/srv/reiven`.
 - A locked-down service user, normally `reiven`.
+- Swap disabled if the deployment promise is that ciphertext never touches disk.
+- Core dumps disabled for the service.
 
 The direct server has no production npm package dependency at runtime. Browser vendor bundles are committed under `public/vendor/`; rebuild them locally or in CI when dependency versions change.
 
@@ -142,20 +131,16 @@ npm audit --omit=dev
 
 ## Production Deployment
 
-### 1. Create User And Directories
+### 1. Create User And Install Source
 
 ```bash
 sudo useradd --system --home /opt/reiven --shell /usr/sbin/nologin reiven || true
-sudo mkdir -p /opt/reiven /srv/reiven
+sudo mkdir -p /opt/reiven
 sudo chown -R root:root /opt/reiven
-sudo chown -R reiven:reiven /srv/reiven
 sudo chmod 755 /opt/reiven
-sudo chmod 700 /srv/reiven
 ```
 
-### 2. Install Source
-
-Clone or sync this repository to `/opt/reiven`:
+Clone the repository:
 
 ```bash
 cd /opt
@@ -170,7 +155,24 @@ rsync -az --delete \
   --exclude .git \
   --exclude node_modules \
   ./ root@SERVER:/opt/reiven/
+ssh root@SERVER 'chown -R root:root /opt/reiven'
 ```
+
+### 2. Disable Swap For Strict Memory-Only Operation
+
+Check swap:
+
+```bash
+swapon --show
+```
+
+Disable active swap:
+
+```bash
+sudo swapoff -a
+```
+
+Remove or comment swap entries from `/etc/fstab` so swap stays disabled after reboot.
 
 ### 3. Run Manually For A Smoke Test
 
@@ -180,7 +182,8 @@ sudo -u reiven \
   HOST=127.0.0.1 \
   PORT=8080 \
   PUBLIC_BASE_URL=https://reiven.io \
-  REIVEN_DATA_DIR=/srv/reiven \
+  MAX_FILE_SIZE_MB=512 \
+  MAX_MEMORY_STORAGE_MB=2048 \
   /usr/bin/node /opt/reiven/direct-server/server.mjs
 ```
 
@@ -197,7 +200,7 @@ Create `/etc/systemd/system/reiven-direct.service`:
 
 ```ini
 [Unit]
-Description=Reiven direct file-transfer server
+Description=Reiven memory-only encrypted sharing server
 After=network-online.target
 Wants=network-online.target
 
@@ -210,9 +213,9 @@ Environment=NODE_ENV=production
 Environment=HOST=127.0.0.1
 Environment=PORT=8080
 Environment=PUBLIC_BASE_URL=https://reiven.io
-Environment=REIVEN_DATA_DIR=/srv/reiven
 Environment=FILE_TTL_HOURS=24
-Environment=MAX_FILE_SIZE_MB=10240
+Environment=MAX_FILE_SIZE_MB=512
+Environment=MAX_MEMORY_STORAGE_MB=2048
 Environment=PART_SIZE_BYTES=52428800
 ExecStart=/usr/bin/node /opt/reiven/direct-server/server.mjs
 Restart=always
@@ -221,11 +224,13 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/srv/reiven
 CapabilityBoundingSet=
 LockPersonality=true
 RestrictRealtime=true
 SystemCallArchitectures=native
+LimitCORE=0
+MemorySwapMax=0
+MemoryMax=3G
 
 [Install]
 WantedBy=multi-user.target
@@ -302,7 +307,7 @@ rsync -az --delete \
 ssh root@SERVER 'chown -R root:root /opt/reiven && systemctl restart reiven-direct'
 ```
 
-Do not overwrite `/srv/reiven` during application deploys unless intentionally restoring or deleting stored encrypted payloads.
+Because storage is memory-only, every restart, deploy, crash, or host reboot removes all pending uploads.
 
 ## Environment Variables
 
@@ -310,9 +315,9 @@ Do not overwrite `/srv/reiven` during application deploys unless intentionally r
 - `PORT` — bind port, default `8080`.
 - `PUBLIC_BASE_URL` — external origin used for generated links, for example `https://reiven.io`.
 - `PUBLIC_DIR` — static asset directory override, default `public/`.
-- `REIVEN_DATA_DIR` — storage directory, default `/srv/reiven`.
 - `FILE_TTL_HOURS` — upload lifetime, default `24`.
-- `MAX_FILE_SIZE_MB` — encrypted upload size limit, default `10240`.
+- `MAX_FILE_SIZE_MB` — per-upload encrypted size limit, default `512`.
+- `MAX_MEMORY_STORAGE_MB` — total in-memory storage reservation limit, default `2048`.
 - `PART_SIZE_BYTES` — server upload part size, default `52428800`.
 - `UPLOAD_MAX_AGE_MS` — abandoned upload session lifetime, default `7200000`.
 
@@ -404,16 +409,16 @@ Restart:
 systemctl restart reiven-direct
 ```
 
-Inspect data directory:
+Check memory settings:
 
 ```bash
-find /srv/reiven -maxdepth 2 -type f -ls
+systemctl show reiven-direct -p MemoryMax -p MemorySwapMax -p LimitCORE
 ```
 
-Back up encrypted payloads and metadata only when retention is intended:
+Check active uploads:
 
 ```bash
-tar -C /srv -czf reiven-data-backup.tgz reiven
+curl -fsSL http://127.0.0.1:8080/health
 ```
 
 ## Release Checklist
@@ -428,26 +433,10 @@ tar -C /srv -czf reiven-data-backup.tgz reiven
 - Restart `reiven-direct`.
 - Check HTTPS headers and service logs.
 
-## Legacy Cloudflare Path
-
-The following files are legacy/reference material:
-
-- `src/worker.js`
-- `mem-server/`
-- `migrations/`
-- `wrangler.toml`
-- `npm run dev`
-- `npm run deploy`
-- `npm run db:migrate`
-- `npm run db:migrate:remote`
-
-Do not use the Cloudflare path for current production deploys unless intentionally reviving that infrastructure.
-
 ## Safety Notes
 
 - Do not log passwords, URL fragments, plaintext payloads, ciphertext contents, or delete tokens.
 - Treat QR links as secrets because they include the decryption key in the fragment.
-- Keep `/srv/reiven` writable only by the `reiven` service user.
 - Keep `/opt/reiven` owned by `root` in production.
+- Keep swap disabled and core dumps blocked for strict memory-only operation.
 - Keep TLS termination, firewalling, OS patching, and host monitoring managed at the server layer.
-- Never commit production data from `/srv/reiven`.

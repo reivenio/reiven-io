@@ -56,7 +56,6 @@ const copyQrBtn = document.getElementById('copy-qr-btn');
 const completeNoteEl = document.getElementById('complete-note');
 const codeSegmentEls = Array.from(document.querySelectorAll('.download-code-input'));
 const startupOverlayEl = document.getElementById('startup-overlay');
-const STORAGE_BACKEND = 'ramdisk';
 const ENCRYPTION_TYPE_STANDARD = 'standard';
 const ENCRYPTION_TYPE_PARANOID = 'paranoid';
 const CONTENT_TYPE_FILE = 'file';
@@ -478,7 +477,6 @@ const initMultipartUpload = async ({ originalName, size, allowReceiverDelete, is
     body: JSON.stringify({
       originalName,
       size,
-      storage: STORAGE_BACKEND,
       allowReceiverDelete: Boolean(allowReceiverDelete),
       isNote: Boolean(isNote),
     }),

@@ -1,2 +1,0 @@
-ALTER TABLE files ADD COLUMN allow_receiver_delete INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE uploads ADD COLUMN allow_receiver_delete INTEGER NOT NULL DEFAULT 0;

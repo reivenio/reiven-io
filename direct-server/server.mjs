@@ -1,4 +1,5 @@
-import { createReadStream, createWriteStream, promises as fs } from 'node:fs';
+import { once } from 'node:events';
+import { createReadStream, promises as fs } from 'node:fs';
 import { createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 import { createServer } from 'node:http';
 import path from 'node:path';
@@ -7,15 +8,12 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..');
 const PUBLIC_DIR = process.env.PUBLIC_DIR || path.join(REPO_ROOT, 'public');
-const DATA_DIR = process.env.REIVEN_DATA_DIR || '/srv/reiven';
-const FILES_DIR = path.join(DATA_DIR, 'files');
-const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
-const DB_PATH = path.join(DATA_DIR, 'metadata.json');
 
 const HOST = process.env.HOST || '127.0.0.1';
 const PORT = Number(process.env.PORT || 8080);
 const DEFAULT_TTL_HOURS = 24;
-const DEFAULT_MAX_FILE_SIZE_MB = 10240;
+const DEFAULT_MAX_FILE_SIZE_MB = 512;
+const DEFAULT_MAX_MEMORY_STORAGE_MB = 2048;
 const DEFAULT_PART_SIZE_BYTES = 50 * 1024 * 1024;
 const DEFAULT_UPLOAD_MAX_AGE_MS = 2 * 60 * 60 * 1000;
 const CLEANUP_INTERVAL_MS = 60 * 1000;
@@ -23,13 +21,13 @@ const CODE_RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const CODE_RATE_LIMIT_MAX = 20;
 
 const uploads = new Map();
+const fileBlobs = new Map();
 const rateBuckets = new Map();
 let db = {
   version: 1,
   files: {},
   accessCodes: {},
 };
-let saveQueue = Promise.resolve();
 
 const BASE_SECURITY_HEADERS = Object.freeze({
   'x-content-type-options': 'nosniff',
@@ -76,8 +74,6 @@ const randomHex = (bytes = 16) => randomBytes(bytes).toString('hex');
 const nowIso = () => new Date().toISOString();
 const addHoursIso = (hours) => new Date(Date.now() + (hours * 60 * 60 * 1000)).toISOString();
 const sha256Hex = (value) => createHash('sha256').update(String(value)).digest('hex');
-const filePathFor = (id) => path.join(FILES_DIR, `${id}.bin`);
-const uploadDirFor = (uploadId) => path.join(UPLOADS_DIR, uploadId);
 
 const safeEqualString = (left, right) => {
   const leftBuffer = Buffer.from(String(left || ''));
@@ -92,6 +88,29 @@ const parseEnvNumber = (value, fallback) => {
   const num = Number(value);
   return Number.isFinite(num) && num > 0 ? num : fallback;
 };
+
+const getMaxMemoryBytes = () => parseEnvNumber(
+  process.env.MAX_MEMORY_STORAGE_MB,
+  DEFAULT_MAX_MEMORY_STORAGE_MB
+) * 1024 * 1024;
+
+const getStoredBytes = () => {
+  let total = 0;
+  for (const blob of fileBlobs.values()) {
+    total += Number(blob.size || 0);
+  }
+  return total;
+};
+
+const getReservedUploadBytes = () => {
+  let total = 0;
+  for (const session of uploads.values()) {
+    total += Number(session.expectedSize || 0);
+  }
+  return total;
+};
+
+const hasMemoryCapacityFor = (bytes) => (getStoredBytes() + getReservedUploadBytes() + bytes) <= getMaxMemoryBytes();
 
 const getOrigin = (req) => {
   const configured = String(process.env.PUBLIC_BASE_URL || '').trim();
@@ -212,59 +231,26 @@ const readJson = async (req, limitBytes = 1024 * 1024) => {
   }
 };
 
-const consumeToFile = async (req, filePath) => {
-  const handle = await fs.open(filePath, 'w');
+const consumeToBuffer = async (req, limitBytes) => {
+  const chunks = [];
   const hash = createHash('sha256');
   let size = 0;
-  try {
-    for await (const chunk of req) {
-      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-      await handle.write(buf);
-      hash.update(buf);
-      size += buf.length;
+  for await (const chunk of req) {
+    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    size += buf.length;
+    if (Number.isFinite(limitBytes) && size > limitBytes) {
+      const err = new Error('Upload part exceeds expected size');
+      err.statusCode = 413;
+      throw err;
     }
-  } finally {
-    await handle.close();
+    chunks.push(buf);
+    hash.update(buf);
   }
   return {
     size,
     etag: hash.digest('hex'),
+    buffer: Buffer.concat(chunks, size),
   };
-};
-
-const appendFileToHandle = async (handle, sourcePath) => {
-  for await (const chunk of createReadStream(sourcePath)) {
-    await handle.write(chunk);
-  }
-};
-
-const loadDb = async () => {
-  try {
-    const raw = await fs.readFile(DB_PATH, 'utf8');
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === 'object') {
-      db = {
-        version: 1,
-        files: parsed.files && typeof parsed.files === 'object' ? parsed.files : {},
-        accessCodes: parsed.accessCodes && typeof parsed.accessCodes === 'object' ? parsed.accessCodes : {},
-      };
-    }
-  } catch (err) {
-    if (err && err.code !== 'ENOENT') {
-      throw err;
-    }
-  }
-};
-
-const saveDbNow = async () => {
-  const tmpPath = `${DB_PATH}.${process.pid}.${Date.now()}.tmp`;
-  await fs.writeFile(tmpPath, `${JSON.stringify(db, null, 2)}\n`, { mode: 0o600 });
-  await fs.rename(tmpPath, DB_PATH);
-};
-
-const saveDb = () => {
-  saveQueue = saveQueue.then(saveDbNow, saveDbNow);
-  return saveQueue;
 };
 
 const deleteFileRecord = async (id) => {
@@ -272,12 +258,11 @@ const deleteFileRecord = async (id) => {
   if (!row) {
     return;
   }
-  await fs.rm(filePathFor(id), { force: true });
+  fileBlobs.delete(id);
   if (row.accessCodeHash) {
     delete db.accessCodes[row.accessCodeHash];
   }
   delete db.files[id];
-  await saveDb();
 };
 
 const loadFileRow = async (id) => {
@@ -286,6 +271,10 @@ const loadFileRow = async (id) => {
     return null;
   }
   if (Date.parse(row.expiresAt) <= Date.now()) {
+    await deleteFileRecord(id);
+    return null;
+  }
+  if (!fileBlobs.has(id)) {
     await deleteFileRecord(id);
     return null;
   }
@@ -396,6 +385,10 @@ const handleUploadInit = async (req, res) => {
   if (expectedSize > maxBytes) {
     return json(res, 413, { error: `File exceeds ${maxMb}MB limit` });
   }
+  if (!hasMemoryCapacityFor(expectedSize)) {
+    const maxMemoryMb = parseEnvNumber(process.env.MAX_MEMORY_STORAGE_MB, DEFAULT_MAX_MEMORY_STORAGE_MB);
+    return json(res, 507, { error: `Server memory storage limit reached (${maxMemoryMb}MB)` });
+  }
 
   const fileId = randomHex(9);
   const uploadId = randomHex(16);
@@ -403,8 +396,6 @@ const handleUploadInit = async (req, res) => {
   const ttlHours = parseEnvNumber(process.env.FILE_TTL_HOURS, DEFAULT_TTL_HOURS);
   const createdAt = nowIso();
   const expiresAt = addHoursIso(ttlHours);
-  const uploadDir = uploadDirFor(uploadId);
-  await fs.mkdir(uploadDir, { recursive: true, mode: 0o700 });
 
   uploads.set(uploadId, {
     uploadId,
@@ -417,7 +408,7 @@ const handleUploadInit = async (req, res) => {
     allowReceiverDelete: body.allowReceiverDelete === true || body.allowReceiverDelete === 1 || body.allowReceiverDelete === '1',
     isNote: body.isNote === true || body.isNote === 1 || body.isNote === '1',
     createdAtMs: Date.now(),
-    dir: uploadDir,
+    receivedSize: 0,
     parts: new Map(),
   });
 
@@ -438,11 +429,22 @@ const handleUploadPart = async (req, res, url) => {
   if (!session) {
     return json(res, 404, { error: 'Upload session not found' });
   }
+  if (session.parts.has(partNumber)) {
+    return json(res, 409, { error: `Part ${partNumber} already uploaded` });
+  }
 
-  const partPath = path.join(session.dir, `${partNumber}.part`);
-  const { size, etag } = await consumeToFile(req, partPath);
-  session.parts.set(partNumber, { etag, size, path: partPath });
-  return json(res, 200, { partNumber, etag });
+  let uploaded;
+  try {
+    uploaded = await consumeToBuffer(req, session.expectedSize - session.receivedSize);
+  } catch (err) {
+    return json(res, err.statusCode || 500, { error: err.message || 'Could not read upload part' });
+  }
+  if (uploaded.size <= 0) {
+    return json(res, 400, { error: 'Upload part is empty' });
+  }
+  session.parts.set(partNumber, uploaded);
+  session.receivedSize += uploaded.size;
+  return json(res, 200, { partNumber, etag: uploaded.etag });
 };
 
 const handleUploadComplete = async (req, res) => {
@@ -483,15 +485,10 @@ const handleUploadComplete = async (req, res) => {
     return json(res, 400, { error: 'Uploaded size does not match expected size' });
   }
 
-  const finalPath = filePathFor(session.fileId);
-  const handle = await fs.open(finalPath, 'w', 0o600);
-  try {
-    for (const part of parts) {
-      await appendFileToHandle(handle, session.parts.get(part.partNumber).path);
-    }
-  } finally {
-    await handle.close();
-  }
+  fileBlobs.set(session.fileId, {
+    size: total,
+    parts: parts.map((part) => session.parts.get(part.partNumber).buffer),
+  });
 
   const { code, codeHash } = await assignAccessCode(session.fileId);
   db.files[session.fileId] = {
@@ -506,10 +503,8 @@ const handleUploadComplete = async (req, res) => {
     isNote: session.isNote,
     accessCodeHash: codeHash,
   };
-  await saveDb();
 
   uploads.delete(uploadId);
-  await fs.rm(session.dir, { recursive: true, force: true });
 
   const base = getOrigin(req);
   return json(res, 201, {
@@ -532,7 +527,6 @@ const handleUploadAbort = async (req, res) => {
   }
   const session = uploads.get(uploadId);
   if (session) {
-    await fs.rm(session.dir, { recursive: true, force: true });
     uploads.delete(uploadId);
   }
   return noContent(res);
@@ -575,21 +569,44 @@ const handleFileInfoByCode = async (req, res, codeInput) => {
   });
 };
 
+const writeStoredBlob = async (res, blob, range = null) => {
+  const start = range ? range.start : 0;
+  const end = range ? range.end : blob.size - 1;
+  let offset = 0;
+
+  for (const part of blob.parts) {
+    const partStart = offset;
+    const partEnd = offset + part.length - 1;
+    offset += part.length;
+
+    if (partEnd < start || partStart > end) {
+      continue;
+    }
+
+    const sliceStart = Math.max(0, start - partStart);
+    const sliceEnd = Math.min(part.length, (end - partStart) + 1);
+    const chunk = part.subarray(sliceStart, sliceEnd);
+    if (chunk.length && !res.write(chunk)) {
+      await once(res, 'drain');
+    }
+  }
+
+  res.end();
+};
+
 const handleDownload = async (req, res, id) => {
   const row = await loadFileRow(id);
   if (!row) {
     return json(res, 404, { error: 'File not found or expired' });
   }
 
-  let stat;
-  try {
-    stat = await fs.stat(filePathFor(id));
-  } catch {
+  const blob = fileBlobs.get(id);
+  if (!blob) {
     await deleteFileRecord(id);
     return json(res, 404, { error: 'File not found or expired' });
   }
 
-  const total = Number(stat.size || 0);
+  const total = Number(blob.size || 0);
   const range = parseRange(req.headers.range, total);
   if (range && range.error) {
     res.writeHead(416, withSecurityHeaders({
@@ -602,7 +619,6 @@ const handleDownload = async (req, res, id) => {
 
   if (!range) {
     row.downloadCount = Number(row.downloadCount || 0) + 1;
-    await saveDb();
   }
 
   const headers = {
@@ -617,8 +633,7 @@ const handleDownload = async (req, res, id) => {
       ...headers,
       'content-length': String(total),
     }));
-    createReadStream(filePathFor(id)).pipe(res);
-    return;
+    return writeStoredBlob(res, blob);
   }
 
   res.writeHead(206, withSecurityHeaders({
@@ -626,7 +641,7 @@ const handleDownload = async (req, res, id) => {
     'content-range': `bytes ${range.start}-${range.end}/${total}`,
     'content-length': String(range.length),
   }));
-  createReadStream(filePathFor(id), { start: range.start, end: range.end }).pipe(res);
+  return writeStoredBlob(res, blob, range);
 };
 
 const handleDeleteApi = async (req, res, id) => {
@@ -774,25 +789,19 @@ const handleDeletePage = async (req, res, id, token) => {
 
 const cleanup = async () => {
   const now = Date.now();
-  let dbChanged = false;
   for (const [uploadId, session] of uploads.entries()) {
     if ((now - session.createdAtMs) > parseEnvNumber(process.env.UPLOAD_MAX_AGE_MS, DEFAULT_UPLOAD_MAX_AGE_MS)) {
-      await fs.rm(session.dir, { recursive: true, force: true });
       uploads.delete(uploadId);
     }
   }
   for (const [id, row] of Object.entries(db.files)) {
     if (Date.parse(row.expiresAt) <= now) {
-      await fs.rm(filePathFor(id), { force: true });
       if (row.accessCodeHash) {
         delete db.accessCodes[row.accessCodeHash];
       }
+      fileBlobs.delete(id);
       delete db.files[id];
-      dbChanged = true;
     }
-  }
-  if (dbChanged) {
-    await saveDb();
   }
 };
 
@@ -854,9 +863,6 @@ const routeRequest = async (req, res) => {
 };
 
 const main = async () => {
-  await fs.mkdir(FILES_DIR, { recursive: true, mode: 0o700 });
-  await fs.mkdir(UPLOADS_DIR, { recursive: true, mode: 0o700 });
-  await loadDb();
   await cleanup();
   setInterval(() => cleanup().catch((err) => {
     console.error('[cleanup]', err && err.message ? err.message : err);
@@ -871,7 +877,14 @@ const main = async () => {
   });
 
   server.listen(PORT, HOST, () => {
-    logEvent('server-start', { host: HOST, port: PORT, dataDir: DATA_DIR, publicDir: PUBLIC_DIR });
+    logEvent('server-start', {
+      host: HOST,
+      port: PORT,
+      storage: 'memory',
+      maxFileMb: parseEnvNumber(process.env.MAX_FILE_SIZE_MB, DEFAULT_MAX_FILE_SIZE_MB),
+      maxMemoryStorageMb: parseEnvNumber(process.env.MAX_MEMORY_STORAGE_MB, DEFAULT_MAX_MEMORY_STORAGE_MB),
+      publicDir: PUBLIC_DIR,
+    });
   });
 };
 

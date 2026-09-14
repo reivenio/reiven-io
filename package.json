@@ -4,26 +4,20 @@
   "description": "Zero-knowledge encrypted file and note sharing",
   "private": true,
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
-    "direct:dev": "REIVEN_DATA_DIR=./.reiven-data HOST=127.0.0.1 PORT=8080 node direct-server/server.mjs",
+    "dev": "npm run direct:dev",
+    "start": "npm run direct:start",
+    "direct:dev": "HOST=127.0.0.1 PORT=8080 MAX_FILE_SIZE_MB=512 MAX_MEMORY_STORAGE_MB=2048 node direct-server/server.mjs",
     "direct:start": "node direct-server/server.mjs",
     "vendor": "npm run vendor:crypto && npm run vendor:qr",
     "vendor:crypto": "mkdir -p public/vendor && cp node_modules/argon2-browser/dist/argon2-bundled.min.js public/vendor/argon2-bundled.min.js && esbuild node_modules/@noble/post-quantum/ml-kem.js --bundle --format=esm --platform=browser --target=es2022 --outfile=public/vendor/ml-kem.js",
-    "vendor:qr": "mkdir -p public/vendor && esbuild node_modules/qrcode/lib/browser.js --bundle --format=iife --global-name=ReivenQR --platform=browser --target=es2020 --minify --outfile=public/vendor/qrcode.min.js",
-    "db:migrate": "wrangler d1 execute reiven-io-db --file=./migrations/001_init.sql --local && wrangler d1 execute reiven-io-db --file=./migrations/002_receiver_delete.sql --local && wrangler d1 execute reiven-io-db --file=./migrations/003_notes.sql --local",
-    "db:migrate:remote": "wrangler d1 execute reiven-io-db --file=./migrations/001_init.sql --remote && wrangler d1 execute reiven-io-db --file=./migrations/002_receiver_delete.sql --remote && wrangler d1 execute reiven-io-db --file=./migrations/003_notes.sql --remote"
+    "vendor:qr": "mkdir -p public/vendor && esbuild node_modules/qrcode/lib/browser.js --bundle --format=iife --global-name=ReivenQR --platform=browser --target=es2020 --minify --outfile=public/vendor/qrcode.min.js"
   },
   "devDependencies": {
-    "wrangler": "^4.100.0"
+    "esbuild": "^0.28.1"
   },
   "dependencies": {
     "@noble/post-quantum": "^0.5.4",
     "argon2-browser": "^1.18.0",
     "qrcode": "^1.5.4"
-  },
-  "overrides": {
-    "esbuild": "^0.28.1",
-    "ws": "^8.21.0"
   }
 }
