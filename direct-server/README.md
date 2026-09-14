@@ -1,38 +1,27 @@
 # Reiven Direct Server
 
-Standalone Reiven server with no Cloudflare Worker, R2, or D1 runtime dependency.
+`server.mjs` is the current production Reiven runtime. It serves the web app from `../public`, implements the `/api/*` contract, stores encrypted payloads under `REIVEN_DATA_DIR/files`, and stores operational metadata in `REIVEN_DATA_DIR/metadata.json`.
 
-## Runtime
+Read the root `README.md` for the full project architecture, deployment guide, systemd unit, Caddy config, API documentation, SEO notes, and operational runbook.
 
-- Serves `../public`
-- Implements the same `/api/*` contract as the Worker
-- Stores encrypted blobs in `REIVEN_DATA_DIR/files`
-- Stores metadata in `REIVEN_DATA_DIR/metadata.json`
-- Keeps upload sessions in memory and cleans abandoned part files
+## Quick Run
 
-The server stores ciphertext only. Browser/CLI crypto remains Argon2id + ML-KEM-768 wrapping + AES-256-GCM chunked v5.
+```bash
+HOST=127.0.0.1 \
+PORT=8080 \
+PUBLIC_BASE_URL=https://reiven.io \
+REIVEN_DATA_DIR=/srv/reiven \
+node direct-server/server.mjs
+```
 
-## Environment
+## Runtime Environment
 
 - `HOST` default `127.0.0.1`
 - `PORT` default `8080`
-- `PUBLIC_BASE_URL` optional external origin, e.g. `https://reiven.io`
+- `PUBLIC_BASE_URL` optional external origin, for example `https://reiven.io`
+- `PUBLIC_DIR` optional static asset directory override
 - `REIVEN_DATA_DIR` default `/srv/reiven`
 - `FILE_TTL_HOURS` default `24`
 - `MAX_FILE_SIZE_MB` default `10240`
 - `PART_SIZE_BYTES` default `52428800`
 - `UPLOAD_MAX_AGE_MS` default `7200000`
-
-## Local Run
-
-```bash
-npm run direct:dev
-```
-
-## Server Run
-
-```bash
-cd /opt/reiven
-npm ci
-HOST=127.0.0.1 PORT=8080 PUBLIC_BASE_URL=https://reiven.io REIVEN_DATA_DIR=/srv/reiven npm run direct:start
-```
