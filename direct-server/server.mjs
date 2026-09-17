@@ -46,10 +46,10 @@ const buildContentSecurityPolicy = (scriptNonce = '') => {
     "object-src 'none'",
     "frame-ancestors 'none'",
     "form-action 'self'",
-    "connect-src 'self'",
-    "img-src 'self' data:",
+    "connect-src 'self' https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com",
+    "img-src 'self' data: https://*.google-analytics.com https://*.googletagmanager.com",
     "style-src 'self'",
-    `script-src ${scriptSrc.join(' ')}`,
+    `script-src ${scriptSrc.join(' ')} https://www.googletagmanager.com`,
     "worker-src 'self'",
     "upgrade-insecure-requests",
   ].join('; ');
@@ -669,6 +669,8 @@ const renderDeletePage = ({ title, message, id = '', token = '', showConfirm = f
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Reiven.io Delete</title>
     <link rel="stylesheet" href="/styles.css" />
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-MY4DKRSGEJ"></script>
+    <script src="/analytics.js"></script>
   </head>
   <body>
     <main class="app-shell">
