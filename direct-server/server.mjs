@@ -315,6 +315,7 @@ const mimeFor = (filePath) => {
   if (ext === '.xml') return 'application/xml; charset=utf-8';
   if (ext === '.txt') return 'text/plain; charset=utf-8';
   if (ext === '.wasm') return 'application/wasm';
+  if (ext === '.svg') return 'image/svg+xml';
   if (ext === '.ico') return 'image/x-icon';
   return 'application/octet-stream';
 };
@@ -667,7 +668,9 @@ const renderDeletePage = ({ title, message, id = '', token = '', showConfirm = f
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#080c0e" />
     <title>Reiven.io Delete</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/styles.css" />
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-MY4DKRSGEJ"></script>
     <script src="/analytics.js"></script>
