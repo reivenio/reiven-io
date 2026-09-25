@@ -1189,14 +1189,17 @@ body:not(.app-loading) .startup-overlay {
 
 .footer-note {
   display: flex;
+  flex-direction: column;
+  align-items: center;
   justify-content: center;
+  gap: 16px;
   padding: 16px;
   color: var(--accent-dark);
   font-family: var(--display);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 2px;
-  line-height: 1;
+  line-height: 1.6;
   text-align: center;
   text-transform: uppercase;
 }
@@ -1495,7 +1498,7 @@ body:not(.app-loading) .startup-overlay {
   justify-content: center;
   flex-wrap: wrap;
   gap: 12px 20px;
-  margin-top: 20px;
+  max-width: 100%;
 }
 
 .footer-links a {
@@ -1506,6 +1509,7 @@ body:not(.app-loading) .startup-overlay {
   color: var(--muted-3);
   text-decoration: underline;
   text-underline-offset: 4px;
+  white-space: nowrap;
 }
 
 .workspace-title {

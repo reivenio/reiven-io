@@ -1,0 +1,86 @@
+name: Reiven RAM appliance
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/appliance.yml'
+      - 'appliance/**'
+      - 'direct-server/**'
+      - 'public/**'
+      - 'shared/**'
+      - 'package.json'
+      - 'package-lock.json'
+  pull_request:
+    paths:
+      - '.github/workflows/appliance.yml'
+      - 'appliance/**'
+      - 'direct-server/**'
+      - 'public/**'
+      - 'shared/**'
+      - 'package.json'
+      - 'package-lock.json'
+  schedule:
+    - cron: '17 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+          cache: npm
+      - run: sudo apt-get update && sudo apt-get install --yes shellcheck
+      - run: npm ci
+      - run: npm run appliance:validate
+      - run: npm audit --omit=dev
+      - run: npm --prefix reiven-cli audit --omit=dev
+
+  update-check:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    needs: validate
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - run: npm run appliance:updates
+
+  build:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    needs: [validate, update-check]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Install image builder
+        run: sudo apt-get update && sudo apt-get install --yes live-build ripgrep rsync xorriso squashfs-tools syslinux-utils
+      - name: Prepare administrator public keys
+        env:
+          REIVEN_ADMIN_AUTHORIZED_KEYS: ${{ secrets.REIVEN_ADMIN_AUTHORIZED_KEYS }}
+        run: |
+          test -n "$REIVEN_ADMIN_AUTHORIZED_KEYS"
+          install -m 0600 /dev/null /tmp/reiven-authorized-keys
+          printf '%s\n' "$REIVEN_ADMIN_AUTHORIZED_KEYS" > /tmp/reiven-authorized-keys
+          ssh-keygen -l -f /tmp/reiven-authorized-keys
+      - name: Build appliance
+        run: sudo env REIVEN_AUTHORIZED_KEYS_FILE=/tmp/reiven-authorized-keys REIVEN_OUTPUT_DIR="$GITHUB_WORKSPACE/appliance/dist" ./appliance/build.sh
+      - uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45
+        with:
+          subject-path: appliance/dist/*.iso
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: reiven-appliance-${{ github.sha }}
+          path: appliance/dist/
+          if-no-files-found: error
+          retention-days: 14

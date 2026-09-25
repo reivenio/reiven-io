@@ -1,0 +1,13 @@
+[Unit]
+Description=Verify RAM-only Reiven appliance invariants
+After=local-fs.target systemd-sysctl.service reiven-first-boot.service
+Before=caddy.service reiven-direct.service
+Requires=reiven-first-boot.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/reiven-ephemeral-guard
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,22 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      browser-crypto-and-build:
+        patterns:
+          - '*'
+  - package-ecosystem: npm
+    directory: /reiven-cli
+    schedule:
+      interval: weekly
+    groups:
+      cli-dependencies:
+        patterns:
+          - '*'
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

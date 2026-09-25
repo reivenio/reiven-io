@@ -1,0 +1,12 @@
+ca-certificates
+caddy
+curl
+iproute2
+kmod
+linux-image-generic
+nftables
+openssh-server
+openssl
+sudo
+systemd-timesyncd
+xz-utils

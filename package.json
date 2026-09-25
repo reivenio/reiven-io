@@ -9,6 +9,8 @@
     "start": "npm run direct:start",
     "direct:dev": "HOST=127.0.0.1 PORT=8080 MAX_FILE_SIZE_MB=512 MAX_MEMORY_STORAGE_MB=2048 node direct-server/server.mjs",
     "direct:start": "node direct-server/server.mjs",
+    "appliance:validate": "bash appliance/validate.sh",
+    "appliance:updates": "node appliance/check-updates.mjs",
     "vendor": "npm run vendor:crypto && npm run vendor:qr",
     "vendor:crypto": "mkdir -p public/vendor && cp node_modules/argon2-browser/dist/argon2-bundled.min.js public/vendor/argon2-bundled.min.js && esbuild node_modules/@noble/post-quantum/ml-kem.js --bundle --format=esm --platform=browser --target=es2022 --outfile=public/vendor/ml-kem.js",
     "vendor:qr": "mkdir -p public/vendor && esbuild node_modules/qrcode/lib/browser.js --bundle --format=iife --global-name=ReivenQR --platform=browser --target=es2020 --minify --outfile=public/vendor/qrcode.min.js"

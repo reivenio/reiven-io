@@ -1,0 +1,20 @@
+#!/bin/sh
+set -eu
+
+for account in ubuntu user reiven-live; do
+  if id "$account" >/dev/null 2>&1; then
+    usermod --lock --shell /usr/sbin/nologin "$account"
+  fi
+done
+
+passwd --lock root >/dev/null 2>&1 || true
+rm -f /etc/ssh/ssh_host_*
+ssh-keygen -A
+chmod 600 /etc/ssh/ssh_host_*_key
+chmod 644 /etc/ssh/ssh_host_*_key.pub
+ssh_fingerprint=$(ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub)
+logger -t reiven-first-boot -- "SSH host fingerprint: $ssh_fingerprint"
+printf 'Reiven SSH host fingerprint: %s\n' "$ssh_fingerprint" > /dev/console
+
+install -d -o caddy -g caddy -m 0700 /run/caddy-data /run/caddy-config
+install -d -o reiven -g reiven -m 0700 /run/reiven

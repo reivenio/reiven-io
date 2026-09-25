@@ -1,0 +1,33 @@
+#!/bin/sh
+set -eu
+
+fail() {
+  logger -t reiven-ephemeral-guard -- "refusing service startup: $1"
+  printf '%s\n' "reiven appliance guard failed: $1" >&2
+  exit 1
+}
+
+case " $(cat /proc/cmdline) " in
+  *" toram "*) ;;
+  *) fail "kernel command line does not contain toram" ;;
+esac
+
+case " $(cat /proc/cmdline) " in
+  *" nopersistence "*) ;;
+  *) fail "kernel command line does not contain nopersistence" ;;
+esac
+
+[ "$(findmnt -n -o FSTYPE /)" = "overlay" ] || fail "root filesystem is not an overlay"
+[ ! -s /proc/swaps ] || [ "$(wc -l < /proc/swaps)" -eq 1 ] || fail "swap is active"
+[ "$(cat /proc/sys/kernel/core_pattern)" = "|/bin/false" ] || fail "core dump handler is not disabled"
+
+findmnt -rn -o SOURCE,TARGET,OPTIONS | while read -r source target options; do
+  case "$source:$options" in
+    /dev/*:*rw*) fail "writable block filesystem mounted at $target" ;;
+  esac
+done
+
+findmnt -n -T /run -o FSTYPE | grep -Eq '^(tmpfs|overlay)$' || fail "/run is not memory backed"
+findmnt -n -T /var/log -o FSTYPE | grep -Eq '^(tmpfs|overlay)$' || fail "/var/log is not memory backed"
+
+exit 0

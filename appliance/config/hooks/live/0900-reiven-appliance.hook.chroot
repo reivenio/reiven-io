@@ -1,0 +1,50 @@
+#!/bin/sh
+set -eu
+
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get -y full-upgrade
+
+getent group reiven >/dev/null || groupadd --system reiven
+id reiven >/dev/null 2>&1 || useradd --system --gid reiven --home-dir /nonexistent --shell /usr/sbin/nologin reiven
+id reiven-admin >/dev/null 2>&1 || useradd --create-home --shell /bin/bash reiven-admin
+usermod --password x reiven-admin
+
+install -d -o root -g root -m 0755 /etc/ssh/authorized_keys
+chown root:root /etc/ssh/authorized_keys/reiven-admin
+chmod 0600 /etc/ssh/authorized_keys/reiven-admin
+install -o root -g root -m 0440 /dev/null /etc/sudoers.d/reiven-admin
+printf '%s\n' 'reiven-admin ALL=(ALL:ALL) NOPASSWD: ALL' > /etc/sudoers.d/reiven-admin
+
+rm -f /etc/ssh/ssh_host_*
+: > /etc/machine-id
+rm -f /var/lib/dbus/machine-id
+ln -s /etc/machine-id /var/lib/dbus/machine-id
+
+mkdir -p /etc/default
+printf '%s\n' 'enabled=0' > /etc/default/apport
+ln -sf /dev/null /etc/systemd/system/apport.service
+ln -sf /dev/null /etc/systemd/system/apport-coredump-hook@.service
+ln -sf /dev/null /etc/systemd/system/getty@.service
+ln -sf /dev/null /etc/systemd/system/serial-getty@.service
+ln -sf /dev/null /etc/systemd/system/console-getty.service
+
+systemctl enable nftables.service
+systemctl enable ssh.service
+systemctl enable systemd-timesyncd.service
+systemctl enable reiven-first-boot.service
+systemctl enable reiven-ephemeral-guard.service
+systemctl enable reiven-direct.service
+systemctl enable caddy.service
+systemctl disable apt-daily.timer apt-daily-upgrade.timer unattended-upgrades.service 2>/dev/null || true
+
+if apt-get --simulate upgrade | grep -q '^Inst '; then
+  echo 'Package updates remain after full-upgrade.' >&2
+  exit 1
+fi
+
+apt-get clean
+rm -rf /var/lib/apt/lists/*
+
+chown -R root:root /opt/reiven /opt/node
+chmod -R go-w /opt/reiven /opt/node

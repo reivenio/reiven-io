@@ -1,3 +1,9 @@
 node_modules/
 .env
 .DS_Store
+/appliance/.build/
+/appliance/dist/
+/appliance/authorized_keys
+/SECURITY-ASSESSMENT-*.md
+/SECURITY-REMEDIATION-*.md
+/SEO-*.md

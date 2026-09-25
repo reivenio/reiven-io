@@ -1,0 +1,49 @@
+[Unit]
+Description=Reiven memory-only encrypted sharing server
+After=network-online.target reiven-ephemeral-guard.service
+Wants=network-online.target
+Requires=reiven-ephemeral-guard.service
+
+[Service]
+Type=simple
+User=reiven
+Group=reiven
+WorkingDirectory=/opt/reiven
+Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
+Environment=PORT=8080
+Environment=PUBLIC_BASE_URL=https://reiven.io
+Environment=TRUST_PROXY=1
+Environment=FILE_TTL_HOURS=24
+Environment=MAX_FILE_SIZE_MB=512
+Environment=MAX_MEMORY_STORAGE_MB=2048
+Environment=PART_SIZE_BYTES=52428800
+ExecStart=/opt/node/bin/node --max-old-space-size=256 /opt/reiven/direct-server/server.mjs
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+CapabilityBoundingSet=
+LockPersonality=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+LimitCORE=0
+CoredumpFilter=0
+MemorySwapMax=0
+MemoryMax=3G
+TasksMax=128
+LimitNOFILE=4096
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,22 @@
+{
+	log default {
+		format filter {
+			wrap json
+			fields {
+				request delete
+				uri delete
+			}
+		}
+	}
+}
+
+reiven.io {
+	header Strict-Transport-Security "max-age=86400"
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:8080
+}
+
+www.reiven.io {
+	header Strict-Transport-Security "max-age=86400"
+	redir https://reiven.io{uri} permanent
+}

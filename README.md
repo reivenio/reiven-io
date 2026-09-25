@@ -80,6 +80,7 @@ The app still encrypts in chunks. Chunking keeps browser memory lower, supports 
 - `shared/site-pages.mjs` — public routes and `WebSite` structured data.
 - `scripts/build-pages.mjs` — dependency-free public-page content, templates, and sitemap generator.
 - `direct-server/Caddyfile` — HTTPS apex configuration and permanent `www` redirect.
+- `appliance/` — reproducible Ubuntu RAM-boot appliance build and release framework.
 - `reiven-cli/` — terminal client for uploads and downloads.
 - `reiven-ps/` — helper documentation and scripts for desktop integration work.
 
@@ -101,6 +102,14 @@ The app still encrypts in chunks. Chunking keeps browser memory lower, supports 
 - Core dumps disabled for the service.
 
 The direct server has no production npm package dependency at runtime. Browser vendor bundles are committed under `public/vendor/`; rebuild them locally or in CI when dependency versions change.
+
+## RAM-Boot Appliance
+
+The `appliance/` framework builds an Ubuntu 24.04 LTS hybrid ISO that loads its live filesystem into RAM. The image contains the reviewed Reiven source, Node runtime, Caddy, SSH, firewall policy and fail-closed runtime checks. It deliberately contains no private keys. HTTPS certificates, ACME state, SSH host keys, machine identity, logs, uploads and all writable system state are recreated in RAM after each cold boot.
+
+The appliance refuses to start Caddy or Reiven unless the kernel command line includes `toram` and `nopersistence`, the root filesystem is an overlay, swap is absent, the crash handler is disabled and no writable block-backed filesystem is mounted. See `appliance/README.md` for build requirements, signed release artifacts, test procedure and deployment constraints.
+
+Application/static changes can be copied into a running RAM instance, but every change must also be included in a newly tested image or it will disappear at reboot. Kernel and base-image security updates require building and booting a new image. The scheduled workflow detects this need by producing a fresh candidate and exact package manifest; it does not reboot production automatically.
 
 ## Local Development
 

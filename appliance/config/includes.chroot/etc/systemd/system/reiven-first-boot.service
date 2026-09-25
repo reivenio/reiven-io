@@ -1,0 +1,14 @@
+[Unit]
+Description=Generate ephemeral Reiven appliance identity
+DefaultDependencies=no
+After=local-fs.target systemd-remount-fs.service
+Before=network-pre.target ssh.service caddy.service reiven-direct.service
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/reiven-first-boot
+RemainAfterExit=yes
+
+[Install]
+WantedBy=sysinit.target

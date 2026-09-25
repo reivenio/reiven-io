@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+
+cat /etc/reiven-release
+printf 'CMDLINE=%s\n' "$(cat /proc/cmdline)"
+printf 'ROOT=%s\n' "$(findmnt -n -o SOURCE,FSTYPE,OPTIONS /)"
+printf 'CORE_PATTERN=%s\n' "$(cat /proc/sys/kernel/core_pattern)"
+printf 'SSH_FINGERPRINT=%s\n' "$(ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub)"
+printf 'SWAP_ENTRIES=%s\n' "$(( $(wc -l < /proc/swaps) - 1 ))"
+systemctl is-active reiven-first-boot.service reiven-ephemeral-guard.service nftables.service ssh.service reiven-direct.service caddy.service
+curl --fail --silent --show-error http://127.0.0.1:8080/health
+printf '\n'
