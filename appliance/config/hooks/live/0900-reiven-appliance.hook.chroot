@@ -24,7 +24,7 @@ usermod --password x reiven-admin
 
 install -d -o root -g root -m 0755 /etc/ssh/authorized_keys
 chown root:root /etc/ssh/authorized_keys/reiven-admin
-chmod 0600 /etc/ssh/authorized_keys/reiven-admin
+chmod 0644 /etc/ssh/authorized_keys/reiven-admin
 install -o root -g root -m 0440 /dev/null /etc/sudoers.d/reiven-admin
 printf '%s\n' 'reiven-admin ALL=(ALL:ALL) NOPASSWD: ALL' > /etc/sudoers.d/reiven-admin
 

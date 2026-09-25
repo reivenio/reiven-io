@@ -107,7 +107,7 @@ chroot "$rootfs" env DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-i
 rsync -a --chown=root:root "$script_dir/config/includes.chroot/" "$rootfs/"
 install -d -m 0755 "$rootfs/opt/reiven"
 rsync -a --delete "$repo_dir/public" "$repo_dir/shared" "$repo_dir/direct-server" "$rootfs/opt/reiven/"
-install -D -o root -g root -m 0600 "$authorized_keys_file" "$rootfs/etc/ssh/authorized_keys/reiven-admin"
+install -D -o root -g root -m 0644 "$authorized_keys_file" "$rootfs/etc/ssh/authorized_keys/reiven-admin"
 
 node_archive="node-${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz"
 node_base_url="https://nodejs.org/dist/${NODE_VERSION}"
@@ -165,6 +165,11 @@ for root_owned_path in \
     exit 1
   fi
 done
+
+if [[ $(stat -c '%a' "$rootfs/etc/ssh/authorized_keys/reiven-admin") != 644 ]]; then
+  echo "Unsafe or unreadable mode on administrator authorized-keys file." >&2
+  exit 1
+fi
 
 install -d -m 0755 "$iso_root/boot/grub" "$iso_root/casper"
 install -m 0644 "$rootfs/boot/vmlinuz-$kernel_version" "$iso_root/casper/vmlinuz"
