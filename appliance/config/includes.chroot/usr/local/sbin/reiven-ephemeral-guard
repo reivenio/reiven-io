@@ -22,9 +22,11 @@ esac
 [ "$(cat /proc/sys/kernel/core_pattern)" = "|/bin/false" ] || fail "core dump handler is not disabled"
 
 findmnt -rn -o SOURCE,TARGET,OPTIONS | while read -r source target options; do
-  case "$source:$options" in
-    /dev/*:*rw*) fail "writable block filesystem mounted at $target" ;;
-  esac
+  if [ -b "$source" ]; then
+    case ",$options," in
+      *,rw,*) fail "writable block filesystem mounted at $target" ;;
+    esac
+  fi
 done
 
 findmnt -n -T /run -o FSTYPE | grep -Eq '^(tmpfs|overlay)$' || fail "/run is not memory backed"
