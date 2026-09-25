@@ -140,7 +140,7 @@ release_id="$(date -u +%Y%m%d)-${git_commit:0:12}"
 output_image="$output_dir/reiven-appliance-${release_id}-${IMAGE_ARCH}.iso"
 install -m 0644 "$image_path" "$output_image"
 sha256sum "$output_image" > "$output_image.sha256"
-dpkg_query_format='${binary:Package}\t${Version}\n'
+dpkg_query_format="\${binary:Package}\\t\${Version}\\n"
 chroot "$build_root/chroot" dpkg-query -W -f="$dpkg_query_format" | sort > "$output_image.packages.tsv"
 git -C "$repo_dir" ls-files -s | sort > "$output_image.source-manifest.tsv"
 cp "$build_root/SHASUMS256.txt" "$output_image.node-shasums.txt"
