@@ -1,9 +1,5 @@
 const CALIBRATION_CACHE_KEY = 'eshare_argon_calibration_v3';
-const ATTACKER_REF_ARGON = Object.freeze({ time: 4, mem: 65536, parallelism: 1 });
-const ATTACKER_REF_GUESSES_PER_SECOND = 0.55;
-const ATTACKER_PQ_WRAPPING_OVERHEAD = 1.08;
-const ATTACKER_REFERENCE_NOTE = 'Approximate offline-attack model, not a guarantee.';
-const MAX_PARALLEL_PART_UPLOADS = 3;
+const MAX_PARALLEL_PART_UPLOADS = 1;
 let encryptionConfig = null;
 
 const uploadForm = document.getElementById('upload-form');
@@ -493,6 +489,7 @@ const initMultipartUpload = async ({ originalName, size, allowReceiverDelete, is
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
+      formatVersion: 6,
       originalName,
       size,
       allowReceiverDelete: Boolean(allowReceiverDelete),
@@ -618,6 +615,7 @@ const uploadEncryptedFileStreaming = async ({ file, originalName, password, stat
     pim,
     encryptionType,
     originalName,
+    plainSize: file.size,
   }, [], {
     timeoutMs: 180000,
     onProgress: (progress) => {
@@ -637,7 +635,7 @@ const uploadEncryptedFileStreaming = async ({ file, originalName, password, stat
     throw new Error('Encryption session returned invalid metadata');
   }
 
-  const chunkCount = Math.ceil(file.size / chunkPlainSize);
+  const chunkCount = Math.max(1, Math.ceil(file.size / chunkPlainSize));
   const encryptedSize = headerBuffer.byteLength + file.size + (chunkCount * 16);
   let uploadId = '';
   try {
@@ -692,6 +690,7 @@ const uploadEncryptedFileStreaming = async ({ file, originalName, password, stat
       });
     }
 
+    await callWorker('encrypt-finish', { sessionId });
     return await completeMultipartUpload({
       uploadId,
       size: encryptedSize,
@@ -704,7 +703,7 @@ const uploadEncryptedFileStreaming = async ({ file, originalName, password, stat
     throw err;
   } finally {
     try {
-      await callWorker('encrypt-finish', { sessionId });
+      await callWorker('abort', { sessionId });
     } catch {
       // Ignore worker session cleanup failures.
     }
@@ -788,58 +787,11 @@ const estimateMs = (baseParams, baseMs, targetParams) => {
   return Math.max(100, Math.round((baseMs || 700) * (targetCost / baseCost)));
 };
 
-const estimateAttackerGuessesPerSecond = (targetParams) => {
-  const refCost = Math.max(1, ATTACKER_REF_ARGON.time * ATTACKER_REF_ARGON.mem);
-  const targetCost = Math.max(1, targetParams.time * targetParams.mem);
-  const scaled = ATTACKER_REF_GUESSES_PER_SECOND * (refCost / targetCost);
-  return Math.max(1e-9, scaled / ATTACKER_PQ_WRAPPING_OVERHEAD);
-};
-
 const formatMs = (ms) => {
   if (ms < 1000) {
     return `${ms}ms`;
   }
   return `${(ms / 1000).toFixed(1)}s`;
-};
-
-const guessCharsetSize = (password) => {
-  let size = 0;
-  if (/[a-z]/.test(password)) {
-    size += 26;
-  }
-  if (/[A-Z]/.test(password)) {
-    size += 26;
-  }
-  if (/[0-9]/.test(password)) {
-    size += 10;
-  }
-  if (/[^a-zA-Z0-9]/.test(password)) {
-    size += 33;
-  }
-  return size;
-};
-
-const formatDuration = (seconds) => {
-  if (!Number.isFinite(seconds) || seconds <= 0) {
-    return 'N/A';
-  }
-  if (seconds < 1) {
-    return `${(seconds * 1000).toFixed(0)}ms`;
-  }
-  const units = [
-    ['year', 365 * 24 * 3600],
-    ['day', 24 * 3600],
-    ['hour', 3600],
-    ['minute', 60],
-    ['second', 1],
-  ];
-  for (const [name, value] of units) {
-    if (seconds >= value) {
-      const count = seconds / value;
-      return `${count.toFixed(count >= 100 ? 0 : count >= 10 ? 1 : 2)} ${name}${count >= 2 ? 's' : ''}`;
-    }
-  }
-  return `${seconds.toFixed(2)} seconds`;
 };
 
 const updateBruteForceEstimate = () => {
@@ -852,29 +804,7 @@ const updateBruteForceEstimate = () => {
     return;
   }
 
-  const password = passwordInputEl.value || '';
-  const passwordLen = password.length;
-  const charsetSize = guessCharsetSize(password);
-  if (passwordLen === 0 || charsetSize === 0) {
-    bruteForceEstimateEl.textContent = `Password strength estimate appears after you type a password. ${ATTACKER_REFERENCE_NOTE}`;
-    return;
-  }
-
-  const selectedParams = getEncryptionProfile(getSelectedEncryptionType());
-  const attackerGuessesPerSecond = estimateAttackerGuessesPerSecond(selectedParams);
-
-  const log10SearchSpace = passwordLen * Math.log10(charsetSize);
-  const log10ExpectedGuesses = log10SearchSpace - Math.log10(2);
-  const log10Seconds = log10ExpectedGuesses - Math.log10(Math.max(attackerGuessesPerSecond, 1e-9));
-
-  let crackedIn;
-  if (log10Seconds > 14) {
-    crackedIn = `~10^${log10Seconds.toFixed(1)} seconds`;
-  } else {
-    crackedIn = `~${formatDuration(10 ** log10Seconds)}`;
-  }
-
-  bruteForceEstimateEl.textContent = `Estimated offline attack time: ${crackedIn}. Assumes a random password of length ${passwordLen} over charset size ${charsetSize}, ${selectedParams.label} profile, PIM=${getDefaultPim()}, and ML-KEM wrap overhead. ${ATTACKER_REFERENCE_NOTE}`;
+  bruteForceEstimateEl.textContent = 'Use a password manager to generate at least 32 random characters, or use QR Mode. Length alone does not prove strength; predictable passwords remain vulnerable to offline guessing. We do not estimate crack times.';
 };
 
 const updateSecurityEstimate = () => {
@@ -1110,8 +1040,8 @@ uploadForm.addEventListener('submit', async (event) => {
     return;
   }
 
-  if (!password) {
-    showStatus('Please provide a password.', true);
+  if (password.length < 32) {
+    showStatus('Use at least 32 characters from a password manager, or QR Mode.', true);
     return;
   }
 

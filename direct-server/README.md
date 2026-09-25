@@ -25,4 +25,6 @@ node direct-server/server.mjs
 - `MAX_FILE_SIZE_MB` default `512`
 - `MAX_MEMORY_STORAGE_MB` default `2048`
 - `PART_SIZE_BYTES` default `52428800`
-- `UPLOAD_MAX_AGE_MS` default `7200000`
+- `UPLOAD_MAX_AGE_MS` default `1800000`, plus a five-minute inactivity timeout
+
+Use Node.js 24 LTS and the supplied `reiven-direct.service`. Set `TRUST_PROXY=1` only behind the loopback Caddy proxy. Apply the accompanying SSH and no-core configuration as described in the root README. Upload initialization requires `formatVersion: 6`. Per-network quotas, bounded readers, strict completion validation and redacted error logging are enabled.

@@ -1,9 +1,10 @@
-import { once } from 'node:events';
 import { createReadStream, promises as fs } from 'node:fs';
 import { createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 import { createServer } from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isIP } from 'node:net';
+import { parseHeader, FORMAT_VERSION } from '../public/envelope.mjs';
 import { PUBLIC_PAGE_PATHS, SITE_SCHEMA } from '../shared/site-pages.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -19,14 +20,18 @@ const DEFAULT_TTL_HOURS = 24;
 const DEFAULT_MAX_FILE_SIZE_MB = 512;
 const DEFAULT_MAX_MEMORY_STORAGE_MB = 2048;
 const DEFAULT_PART_SIZE_BYTES = 50 * 1024 * 1024;
-const DEFAULT_UPLOAD_MAX_AGE_MS = 2 * 60 * 60 * 1000;
-const CLEANUP_INTERVAL_MS = 60 * 1000;
+const DEFAULT_UPLOAD_MAX_AGE_MS = 30 * 60 * 1000;
+const UPLOAD_IDLE_MS = 5 * 60 * 1000;
+const CLEANUP_INTERVAL_MS = 10 * 1000;
 const CODE_RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const CODE_RATE_LIMIT_MAX = 20;
 
 const uploads = new Map();
 const fileBlobs = new Map();
 const rateBuckets = new Map();
+const clientHashSalt = randomBytes(32).toString('hex');
+let activeParts = 0;
+let activeRequests = 0;
 let db = {
   version: 1,
   files: {},
@@ -135,14 +140,34 @@ const getOrigin = (req) => {
   return `${proto}://${host || `${HOST}:${PORT}`}`;
 };
 
-const getClientIp = (req) => String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown')
-  .split(',')[0]
-  .trim() || 'unknown';
+const getClientIp = (req) => {
+  const peer = req.socket?.remoteAddress || '';
+  const proxy = process.env.TRUST_PROXY === '1' && ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(peer);
+  const forwarded = String(req.headers['x-forwarded-for'] || '').split(',').at(-1).trim();
+  let address = proxy && isIP(forwarded) ? forwarded : peer;
+  if (address.startsWith('::ffff:') && isIP(address.slice(7)) === 4) address = address.slice(7);
+  if (isIP(address) === 6) {
+    const [left, right = ''] = address.split('::');
+    const leading = left ? left.split(':') : [];
+    const trailing = right ? right.split(':') : [];
+    address = [...leading, ...Array(Math.max(0, 8 - leading.length - trailing.length)).fill('0'), ...trailing]
+      .slice(0, 4).map(part => Number.parseInt(part, 16).toString(16)).join(':');
+  }
+  return sha256Hex(`${clientHashSalt}:${address}`);
+};
+
+const expireUpload = (uploadId, session) => {
+  uploads.delete(uploadId);
+  session.cancelled = true;
+  session.request?.destroy();
+  session.parts.clear();
+};
 
 const isRateLimited = (key, maxRequests, windowMs) => {
   const now = Date.now();
   const bucket = rateBuckets.get(key);
   if (!bucket || bucket.resetAt <= now) {
+    if (!bucket && rateBuckets.size >= 4096) return true;
     rateBuckets.set(key, { count: 1, resetAt: now + windowMs });
     return false;
   }
@@ -175,10 +200,12 @@ const escapeHtml = (value) => String(value || '')
   .replace(/"/g, '&quot;');
 
 const escapeHeaderValue = (value) => String(value || '')
-  .replace(/[\r\n"]/g, '')
+  .replace(/[^\x20-\x21\x23-\x5b\x5d-\x7e]/g, '_')
   .slice(0, 255);
 
 const json = (res, status, payload, headers = {}) => {
+  if (res.destroyed || res.writableEnded) return;
+  if (res.headersSent) return res.destroy();
   const body = JSON.stringify(payload);
   res.writeHead(status, withSecurityHeaders({
     'content-type': 'application/json; charset=utf-8',
@@ -224,13 +251,16 @@ const redirect = (res, location) => {
   res.end();
 };
 
-const readJson = async (req, limitBytes = 1024 * 1024) => {
+const readJson = async (req, limitBytes = 65536) => {
+  if (!String(req.headers['content-type'] || '').toLowerCase().startsWith('application/json')) {
+    throw Object.assign(new Error('JSON content type required'), { statusCode: 415 });
+  }
   const chunks = [];
   let total = 0;
   for await (const chunk of req) {
     total += chunk.byteLength;
     if (total > limitBytes) {
-      throw new Error('JSON body is too large');
+      throw Object.assign(new Error('JSON body is too large'), { statusCode: 413 });
     }
     chunks.push(chunk);
   }
@@ -294,7 +324,7 @@ const loadFileRow = async (id) => {
   return row;
 };
 
-const assignAccessCode = async (fileId, maxAttempts = 50) => {
+const assignAccessCode = (fileId, maxAttempts = 50) => {
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const code = generateAccessCodeRaw();
     const codeHash = sha256Hex(code);
@@ -392,19 +422,36 @@ const serveStatic = async (req, res, url) => {
 };
 
 const handleUploadInit = async (req, res) => {
+  await cleanup();
+  const ownerKey = getClientIp(req);
+  if (isRateLimited('upload-global', 120, 60000) || isRateLimited(`upload:${ownerKey}`, 10, 60000)) {
+    return json(res, 429, { error: 'Too many upload requests. Try again later.' }, { 'retry-after': '60' });
+  }
   const body = await readJson(req);
   if (!body || typeof body !== 'object') {
     return json(res, 400, { error: 'Invalid JSON body' });
   }
 
+  if (body.formatVersion !== FORMAT_VERSION) return json(res, 400, { error: 'Refresh or update your client: encryption format 6 is required.' });
+
   const expectedSize = Number(body.size || 0);
   const maxMb = parseEnvNumber(process.env.MAX_FILE_SIZE_MB, DEFAULT_MAX_FILE_SIZE_MB);
   const maxBytes = maxMb * 1024 * 1024;
-  if (!Number.isFinite(expectedSize) || expectedSize <= 0) {
+  if (!Number.isSafeInteger(expectedSize) || expectedSize <= 0) {
     return json(res, 400, { error: 'Invalid file size' });
   }
   if (expectedSize > maxBytes) {
     return json(res, 413, { error: `File exceeds ${maxMb}MB limit` });
+  }
+  const ownedUploads = [...uploads.values()].filter(session => session.ownerKey === ownerKey);
+  const ownedFiles = Object.values(db.files).filter(row => row.ownerKey === ownerKey);
+  const ownerBytes = ownedFiles.reduce((total, row) => total + row.size, 0) + ownedUploads.reduce((total, session) => total + session.expectedSize, 0);
+  const ownerLimit = Math.min(maxBytes, getMaxMemoryBytes() / 4);
+  if (ownedUploads.length >= 1 || ownedFiles.length >= 64 || ownerBytes + expectedSize > ownerLimit) {
+    return json(res, 429, { error: 'Client storage or active-upload quota reached. Finish, delete, or wait for existing shares to expire.' });
+  }
+  if (uploads.size >= 32 || Object.keys(db.files).length + uploads.size >= 1024 || getReservedUploadBytes() + expectedSize > getMaxMemoryBytes() / 2) {
+    return json(res, 503, { error: 'Upload capacity temporarily busy.' }, { 'retry-after': '60' });
   }
   if (!hasMemoryCapacityFor(expectedSize)) {
     const maxMemoryMb = parseEnvNumber(process.env.MAX_MEMORY_STORAGE_MB, DEFAULT_MAX_MEMORY_STORAGE_MB);
@@ -423,6 +470,10 @@ const handleUploadInit = async (req, res) => {
     fileId,
     originalName: String(body.originalName || 'encrypted.bin').trim().slice(0, 255) || 'encrypted.bin',
     expectedSize,
+    ownerKey,
+    busy: false,
+    cancelled: false,
+    lastActivityMs: Date.now(),
     createdAt,
     expiresAt,
     deleteToken,
@@ -435,7 +486,7 @@ const handleUploadInit = async (req, res) => {
 
   return json(res, 201, {
     uploadId,
-    partSizeBytes: parseEnvNumber(process.env.PART_SIZE_BYTES, DEFAULT_PART_SIZE_BYTES),
+    partSizeBytes: Math.min(parseEnvNumber(process.env.PART_SIZE_BYTES, DEFAULT_PART_SIZE_BYTES), DEFAULT_PART_SIZE_BYTES),
   });
 };
 
@@ -450,22 +501,36 @@ const handleUploadPart = async (req, res, url) => {
   if (!session) {
     return json(res, 404, { error: 'Upload session not found' });
   }
+  if (session.ownerKey !== getClientIp(req)) return json(res, 403, { error: 'Upload belongs to another client.' });
+  if (session.busy) return json(res, 409, { error: 'Another part is already in progress.' });
+  if (activeParts >= 8) return json(res, 503, { error: 'Upload readers are busy. Retry later.' });
   if (session.parts.has(partNumber)) {
     return json(res, 409, { error: `Part ${partNumber} already uploaded` });
   }
 
   let uploaded;
+  session.busy = true;
+  session.request = req;
+  session.lastActivityMs = Date.now();
+  activeParts += 1;
+  const deadline = setTimeout(() => req.destroy(), 120000);
   try {
-    uploaded = await consumeToBuffer(req, session.expectedSize - session.receivedSize);
+    uploaded = await consumeToBuffer(req, Math.min(session.expectedSize - session.receivedSize, DEFAULT_PART_SIZE_BYTES));
+    if (session.cancelled || uploads.get(uploadId) !== session) return json(res, 410, { error: 'Upload expired or aborted.' });
+    if (uploaded.size <= 0) return json(res, 400, { error: 'Upload part is empty' });
+    session.parts.set(partNumber, uploaded);
+    session.receivedSize += uploaded.size;
+    session.lastActivityMs = Date.now();
+    return json(res, 200, { partNumber, etag: uploaded.etag });
   } catch (err) {
-    return json(res, err.statusCode || 500, { error: err.message || 'Could not read upload part' });
+    expireUpload(uploadId, session);
+    return json(res, err.statusCode || 400, { error: 'Upload part failed; start a new upload.' });
+  } finally {
+    clearTimeout(deadline);
+    activeParts -= 1;
+    session.busy = false;
+    session.request = null;
   }
-  if (uploaded.size <= 0) {
-    return json(res, 400, { error: 'Upload part is empty' });
-  }
-  session.parts.set(partNumber, uploaded);
-  session.receivedSize += uploaded.size;
-  return json(res, 200, { partNumber, etag: uploaded.etag });
 };
 
 const handleUploadComplete = async (req, res) => {
@@ -486,7 +551,9 @@ const handleUploadComplete = async (req, res) => {
     .filter((p) => Number.isInteger(p.partNumber) && p.partNumber > 0 && p.etag)
     .sort((a, b) => a.partNumber - b.partNumber);
 
-  if (!Number.isFinite(size) || size <= 0 || parts.length === 0) {
+  if (session.ownerKey !== getClientIp(req)) return json(res, 403, { error: 'Upload belongs to another client.' });
+  if (session.busy || session.cancelled) return json(res, 409, { error: 'Upload is not ready to complete.' });
+  if (!Number.isSafeInteger(size) || size <= 0 || parts.length === 0 || parts.length !== partsRaw.length || parts.length !== session.parts.size || parts.some((part, index) => part.partNumber !== index + 1)) {
     return json(res, 400, { error: 'Invalid upload completion payload' });
   }
 
@@ -502,20 +569,36 @@ const handleUploadComplete = async (req, res) => {
     total += stored.size;
   }
 
-  if (total !== size || total !== session.expectedSize) {
+  if (total !== size || total !== session.expectedSize || total !== session.receivedSize) {
     return json(res, 400, { error: 'Uploaded size does not match expected size' });
   }
+
+  const probeParts = [];
+  let probeRemaining = 4096;
+  for (const part of parts) {
+    const bytes = session.parts.get(part.partNumber).buffer.subarray(0, probeRemaining);
+    probeParts.push(bytes);
+    probeRemaining -= bytes.length;
+    if (!probeRemaining) break;
+  }
+  try {
+    if (parseHeader(Buffer.concat(probeParts)).encryptedSize !== total) throw new Error('Size mismatch');
+  } catch {
+    expireUpload(uploadId, session);
+    return json(res, 400, { error: 'Invalid version 6 encrypted envelope.' });
+  }
+  const { code, codeHash } = assignAccessCode(session.fileId);
 
   fileBlobs.set(session.fileId, {
     size: total,
     parts: parts.map((part) => session.parts.get(part.partNumber).buffer),
   });
 
-  const { code, codeHash } = await assignAccessCode(session.fileId);
   db.files[session.fileId] = {
     id: session.fileId,
     originalName: session.originalName,
     size: total,
+    ownerKey: session.ownerKey,
     createdAt: session.createdAt,
     expiresAt: session.expiresAt,
     deleteToken: session.deleteToken,
@@ -548,7 +631,8 @@ const handleUploadAbort = async (req, res) => {
   }
   const session = uploads.get(uploadId);
   if (session) {
-    uploads.delete(uploadId);
+    if (session.ownerKey !== getClientIp(req)) return json(res, 403, { error: 'Upload belongs to another client.' });
+    expireUpload(uploadId, session);
   }
   return noContent(res);
 };
@@ -608,7 +692,15 @@ const writeStoredBlob = async (res, blob, range = null) => {
     const sliceEnd = Math.min(part.length, (end - partStart) + 1);
     const chunk = part.subarray(sliceStart, sliceEnd);
     if (chunk.length && !res.write(chunk)) {
-      await once(res, 'drain');
+      await new Promise((resolve, reject) => {
+        const clear = () => { res.off('drain', drained); res.off('close', closed); res.off('error', closed); };
+        const drained = () => { clear(); resolve(); };
+        const closed = () => { clear(); reject(new Error('Download closed')); };
+        res.once('drain', drained);
+        res.once('close', closed);
+        res.once('error', closed);
+        if (res.destroyed) closed();
+      });
     }
   }
 
@@ -814,9 +906,12 @@ const handleDeletePage = async (req, res, id, token) => {
 const cleanup = async () => {
   const now = Date.now();
   for (const [uploadId, session] of uploads.entries()) {
-    if ((now - session.createdAtMs) > parseEnvNumber(process.env.UPLOAD_MAX_AGE_MS, DEFAULT_UPLOAD_MAX_AGE_MS)) {
-      uploads.delete(uploadId);
+    if (now - session.lastActivityMs > UPLOAD_IDLE_MS || (now - session.createdAtMs) > parseEnvNumber(process.env.UPLOAD_MAX_AGE_MS, DEFAULT_UPLOAD_MAX_AGE_MS)) {
+      expireUpload(uploadId, session);
     }
+  }
+  for (const [key, bucket] of rateBuckets) {
+    if (bucket.resetAt <= now) rateBuckets.delete(key);
   }
   for (const [id, row] of Object.entries(db.files)) {
     if (Date.parse(row.expiresAt) <= now) {
@@ -832,6 +927,7 @@ const cleanup = async () => {
 const routeRequest = async (req, res) => {
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
   const { pathname } = url;
+  if (req.headers.origin && req.headers.origin !== getOrigin(req)) return json(res, 403, { error: 'Cross-origin requests are not permitted.' });
   if (pathname.startsWith('/api/') || pathname.startsWith('/delete/') || pathname === '/health' || TOOL_PAGES.has(pathname.replace(/\.html$|\/$/g, ''))) {
     res.setHeader('x-robots-tag', 'noindex, nofollow, noarchive');
   }
@@ -896,12 +992,22 @@ const main = async () => {
   }), CLEANUP_INTERVAL_MS).unref();
 
   const server = createServer((req, res) => {
+    if (activeRequests >= 128) return json(res, 503, { error: 'Server busy.' });
+    activeRequests += 1;
+    let released = false;
+    const release = () => { if (!released) { released = true; activeRequests -= 1; } };
+    res.once('close', release);
+    res.once('finish', release);
     routeRequest(req, res).catch((err) => {
-      const message = err && err.message ? err.message : String(err);
-      logEvent('request-error', { method: req.method, url: req.url, message });
-      json(res, 500, { error: 'Internal server error' });
+      logEvent('request-error', { method: req.method, status: err.statusCode || 500 });
+      json(res, err.statusCode || 500, { error: 'Request could not be completed.' });
     });
   });
+  server.maxConnections = 128;
+  server.maxRequestsPerSocket = 100;
+  server.headersTimeout = 15000;
+  server.requestTimeout = 120000;
+  server.setTimeout(120000, socket => socket.destroy());
 
   server.listen(PORT, HOST, () => {
     logEvent('server-start', {

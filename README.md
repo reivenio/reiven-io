@@ -21,16 +21,16 @@ Reiven protects payload contents client-side. The server should be treated as un
 - Passwords and QR Mode random keys are generated or entered client-side and are not submitted to the server.
 - File and note payloads are encrypted client-side before upload.
 - Payload encryption uses AES-256-GCM with random 256-bit data encryption keys.
-- Password-derived wrapping uses Argon2id and deterministic ML-KEM-768 key wrapping.
+- Version 6 uses Argon2id, deterministic ML-KEM-768, HKDF-SHA-256 and AES-256-GCM key wrapping. Header parameters, metadata, record roles, total length and chunk positions are authenticated. See `CRYPTO-FORMAT.md` for the wire specification. Legacy v4/v5 files are rejected; re-encrypt originals with updated clients.
 - Standard profile uses Argon2id `time=4`, `memory=64MB`, `parallelism=1`, `PIM=100`.
 - Paranoid profile uses Argon2id `time=6`, `memory=128MB`, `parallelism=1`, `PIM=100`.
-- Chunk payload encryption uses unique per-chunk AES-GCM nonces.
+- Chunk payload encryption uses unique per-chunk AES-GCM nonces and requires authenticated stream completeness, including for empty files.
 - The server stores ciphertext only in process memory, never in application-managed files.
 - The server also keeps operational metadata in process memory: file ID, encrypted size, expiry, delete token, receiver-delete flag, note flag, access-code hash, download count, and upload filename.
-- If filenames are sensitive, rename files before sharing.
+- Bundled browser/CLI clients upload the placeholder `encrypted.bin`; actual filenames are authenticated inside the encrypted header. Custom API clients can expose their chosen upload name.
 - Password strength remains critical; weak passwords can still be brute-forced offline from ciphertext.
 
-For a strict “never touches disk” deployment, disable swap and core dumps on the host. The app does not intentionally write ciphertext or metadata to disk, but operating systems can otherwise page memory or persist process dumps outside the app’s control.
+For a strict memory-only deployment, disable swap and crash collection on the host. `LimitCORE=0` alone is insufficient when Linux pipes dumps to Apport or another collector. The app does not intentionally write ciphertext or metadata to disk, but operating systems can otherwise page memory or persist process dumps outside the app’s control.
 
 QR Mode creates a random key in the browser and appends it to the download URL fragment. URL fragments are not sent in normal HTTP requests, but the full QR/link is the secret and can be exposed through browser history, screenshots, chat previews, or recipient devices.
 
@@ -87,14 +87,14 @@ The app still encrypts in chunks. Chunking keeps browser memory lower, supports 
 
 ### Local Development
 
-- A currently supported Node.js release (the server requires Node.js 18+ syntax/APIs).
+- Node.js 24 LTS (also used for production); use `npm ci` for reproducible dependency installation.
 - `npm`.
 - A modern browser with WebCrypto and Web Worker support.
 
 ### Production Server
 
 - Linux server with SSH access.
-- A currently supported Node.js release at `/usr/bin/node`.
+- Node.js 24 LTS. The supplied service pins `/opt/node-v24.21.0-linux-x64/bin/node`; adapt this verified path for your host architecture/release.
 - Caddy, nginx, or another HTTPS reverse proxy.
 - A locked-down service user, normally `reiven`.
 - Swap disabled if the deployment promise is that ciphertext never touches disk.
@@ -167,10 +167,7 @@ sudo chown -R root:root /opt/reiven
 If deploying from a local checkout instead of cloning on the server:
 
 ```bash
-rsync -az --delete \
-  --exclude .git \
-  --exclude node_modules \
-  ./ root@SERVER:/opt/reiven/
+rsync -az --delete public shared direct-server root@SERVER:/opt/reiven/
 ssh root@SERVER 'chown -R root:root /opt/reiven'
 ```
 
@@ -200,7 +197,7 @@ sudo -u reiven \
   PUBLIC_BASE_URL=https://reiven.io \
   MAX_FILE_SIZE_MB=512 \
   MAX_MEMORY_STORAGE_MB=2048 \
-  /usr/bin/node /opt/reiven/direct-server/server.mjs
+  /opt/node-v24.21.0-linux-x64/bin/node /opt/reiven/direct-server/server.mjs
 ```
 
 In another shell:
@@ -229,11 +226,12 @@ Environment=NODE_ENV=production
 Environment=HOST=127.0.0.1
 Environment=PORT=8080
 Environment=PUBLIC_BASE_URL=https://reiven.io
+Environment=TRUST_PROXY=1
 Environment=FILE_TTL_HOURS=24
 Environment=MAX_FILE_SIZE_MB=512
 Environment=MAX_MEMORY_STORAGE_MB=2048
 Environment=PART_SIZE_BYTES=52428800
-ExecStart=/usr/bin/node /opt/reiven/direct-server/server.mjs
+ExecStart=/opt/node-v24.21.0-linux-x64/bin/node --max-old-space-size=256 /opt/reiven/direct-server/server.mjs
 Restart=always
 RestartSec=2
 NoNewPrivileges=true
@@ -244,9 +242,17 @@ CapabilityBoundingSet=
 LockPersonality=true
 RestrictRealtime=true
 SystemCallArchitectures=native
+RestrictSUIDSGID=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
 LimitCORE=0
+CoredumpFilter=0
 MemorySwapMax=0
 MemoryMax=3G
+TasksMax=128
+LimitNOFILE=4096
+UMask=0077
 
 [Install]
 WantedBy=multi-user.target
@@ -265,13 +271,27 @@ sudo systemctl status reiven-direct --no-pager
 Caddy configuration (also tracked in `direct-server/Caddyfile`):
 
 ```caddyfile
+{
+	log default {
+		format filter {
+			wrap json
+			fields {
+				request delete
+				uri delete
+			}
+		}
+	}
+}
+
 reiven.io {
-  encode zstd gzip
-  reverse_proxy 127.0.0.1:8080
+	header Strict-Transport-Security "max-age=86400"
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:8080
 }
 
 www.reiven.io {
-  redir https://reiven.io{uri} permanent
+	header Strict-Transport-Security "max-age=86400"
+	redir https://reiven.io{uri} permanent
 }
 ```
 
@@ -318,10 +338,7 @@ sudo systemctl status reiven-direct --no-pager
 From a local checkout:
 
 ```bash
-rsync -az --delete \
-  --exclude .git \
-  --exclude node_modules \
-  ./ root@SERVER:/opt/reiven/
+rsync -az --delete public shared direct-server root@SERVER:/opt/reiven/
 ssh root@SERVER 'chown -R root:root /opt/reiven && systemctl restart reiven-direct'
 ```
 
@@ -337,14 +354,14 @@ Because storage is memory-only, every restart, deploy, crash, or host reboot rem
 - `MAX_FILE_SIZE_MB` — per-upload encrypted size limit, default `512`.
 - `MAX_MEMORY_STORAGE_MB` — total in-memory storage reservation limit, default `2048`.
 - `PART_SIZE_BYTES` — server upload part size, default `52428800`.
-- `UPLOAD_MAX_AGE_MS` — abandoned upload session lifetime, default `7200000`.
+- `UPLOAD_MAX_AGE_MS` — abandoned upload session lifetime, default `1800000` (30 minutes), with an additional fixed five-minute inactivity timeout.
 
 ## API
 
 ### Upload
 
 - `POST /api/upload/init`
-  - JSON: `originalName`, `size`, `allowReceiverDelete`, `isNote`.
+  - JSON: `formatVersion: 6`, `originalName`, positive integer `size`, `allowReceiverDelete`, `isNote`.
   - Returns: `uploadId`, `partSizeBytes`.
 - `POST /api/upload/part?uploadId=<id>&partNumber=<n>`
   - Body: encrypted binary part.
@@ -413,7 +430,7 @@ Track branded queries (`reiven`, `reiven.io`, `reiven encryption`) separately fr
 
 Google Analytics (`G-MY4DKRSGEJ`) loads after page load/idle on public information pages only. Its initializer skips URLs with queries or fragments, sets a canonical page URL and empty referrer, and disables Google Signals and advertising-personalization signals. No custom upload-completion event is sent. Remote Google code remains third-party code where it loads.
 
-Sharing, receiving, download, and delete pages do not load analytics or third-party scripts. QR passwords stay in URL fragments, not query strings. The app does not enable a routine successful-request/upload access log, but application, reverse-proxy, and operating-system errors may be logged to disk, including request details. There is no application-enforced fixed retention period. RAM-only upload storage does not mean “no logs”; see the live [privacy information](https://reiven.io/privacy).
+Sharing, receiving, download, and delete pages do not load analytics or third-party scripts. QR passwords stay in URL fragments, not query strings. The app does not enable a routine successful-request/upload access log, but application, reverse-proxy, and operating-system errors may be logged to disk, with application errors limited to method/status and the supplied Caddy filter removing request/URI fields. Other system and hosting logs may still contain metadata. There is no application-enforced fixed retention period. RAM-only upload storage does not mean “no logs”; see the live [privacy information](https://reiven.io/privacy).
 
 ## Operational Runbook
 
@@ -470,3 +487,18 @@ curl -fsSL http://127.0.0.1:8080/health
 - Keep `/opt/reiven` owned by `root` in production.
 - Keep swap disabled and core dumps blocked for strict memory-only operation.
 - Keep TLS termination, firewalling, OS patching, and host monitoring managed at the server layer.
+
+## Security Hardening And v6 Rollout
+
+- New envelopes use the single implementation in `public/envelope.mjs`; see `CRYPTO-FORMAT.md`. Both clients require 32-character minimum passwords for new uploads; prefer generated secrets or QR Mode. Crack-time guesses are no longer shown. PIM is a password-input parameter, not a KDF cost multiplier.
+- Receiver deletion remains enabled by default in the browser. Anyone with the link/code can obtain its delete capability without the password; this is stated in the UI.
+- Upload admission: one active upload and 64 stored files per client network, at most min(per-file limit, one quarter of global storage) stored/reserved bytes per client, 32 sessions/1024 total records globally, and half of the global pool reserved for active uploads at most. Init limits are 10/minute per client and 120/minute globally. These are abuse mitigations, not DDoS immunity; shared NATs share quotas.
+- Part readers are serialized per upload, bounded globally at eight, capped at 50 MiB per part and 120 seconds. Completion validates unique ordered parts, exact counts/sizes and the v6 envelope layout. The server does not possess keys to authenticate payloads.
+- Client quota keys are process-salted IP hashes (IPv6 /64 groups), stored only in RAM with bounded/expired rate buckets. Set `TRUST_PROXY=1` only for a loopback reverse proxy that overwrites untrusted forwarded headers. The backend must not be publicly reachable.
+- Install `direct-server/99-reiven-no-core.conf` under `/etc/sysctl.d/`, disable and mask Apport, and apply `sysctl --system`. The dedicated host must use `kernel.core_pattern=|/bin/false`; retain `LimitCORE=0` and `CoredumpFilter=0`. Verify with a disposable staging crash and again after reboot. Check hosting snapshot/diagnostic policy separately; no app can guarantee a provider never captures RAM.
+- Install `direct-server/00-reiven-ssh.conf` under `/etc/ssh/sshd_config.d/` only after checking key-based administrative access. Run `sshd -t`, reload SSH, and verify a fresh key-based connection before closing the existing session.
+- For manually coordinated maintenance, install `direct-server/99-reiven-no-reboot` under `/etc/apt/apt.conf.d/` to disable unattended automatic reboots. This does not prevent crashes, power loss, or operator reboots. Confirm encrypted-disk recovery access before any planned reboot; schedule kernel activation separately rather than leaving security updates deferred indefinitely.
+- HSTS starts at one day without includeSubDomains/preload. Review all hostnames before increasing coverage. Caddy filters request/URI fields out of default error logging; successful-request access logging remains disabled.
+- Before rollout, block new init requests at the proxy and check `/health`. Drain active shares/uploads or obtain explicit acceptance of their loss. Stage an allowlisted artifact directory, validate configuration, then switch while the service is stopped. A restart/reboot destroys all RAM shares. Never deploy private audit/SEO reports or local dependency trees.
+- Do not silently restore the old vulnerable reader as a rollback. Keep a reviewed v6 release available; an unavailable service is safer than accepting unauthenticated legacy completeness.
+- Independent cryptographic review and a broader penetration test are still outstanding. This remediation is not a security certification.

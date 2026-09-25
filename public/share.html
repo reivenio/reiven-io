@@ -46,7 +46,7 @@
                 <div class="field-block">
                   <label class="field-label" for="password-input">encryption key</label>
                   <div class="input-shell">
-                    <input type="password" id="password-input" minlength="6" required />
+                    <input type="password" id="password-input" minlength="32" maxlength="4096" required />
                     <button type="button" id="password-toggle-btn" class="input-icon-btn" aria-label="Show encryption key" aria-pressed="false">
                       <svg class="input-icon" viewBox="0 0 24 24" aria-hidden="true">
                         <path d="M2.5 12c2.2-3.6 5.3-5.4 9.5-5.4s7.3 1.8 9.5 5.4c-2.2 3.6-5.3 5.4-9.5 5.4S4.7 15.6 2.5 12Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
@@ -75,7 +75,7 @@
                   <input type="checkbox" id="allow-receiver-delete-input" checked />
                   <span class="toggle-copy">
                     <strong>Allow receiver to delete</strong>
-                    <small>If enabled, receiver sees a Delete File button on the download page.</small>
+                    <small>Anyone with the link or access code can delete, even without the password.</small>
                   </span>
                 </label>
 

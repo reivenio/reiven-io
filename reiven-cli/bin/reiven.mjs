@@ -7,30 +7,23 @@ import process from 'node:process';
 import { webcrypto } from 'node:crypto';
 import { argon2id } from 'hash-wasm';
 import { ml_kem768 } from '@noble/post-quantum/ml-kem.js';
+import { createCodec, readBoundedResponse, MAX_PLAINTEXT_SIZE } from '../../public/envelope.mjs';
 import { ENCRYPTION_CONFIG } from '../../shared/encryption-config.mjs';
 
-const MAGIC = ENCRYPTION_CONFIG.magic;
-const LEGACY_FORMAT_VERSION = 4;
-const FORMAT_VERSION = ENCRYPTION_CONFIG.formatVersion;
-const SALT_LEN = ENCRYPTION_CONFIG.saltLen;
-const IV_LEN = ENCRYPTION_CONFIG.ivLen;
-const CHECK_IV_LEN = ENCRYPTION_CONFIG.checkIvLen;
-const WRAP_IV_LEN = ENCRYPTION_CONFIG.wrapIvLen;
-const HEADER_FIXED_LEN = ENCRYPTION_CONFIG.headerFixedLen;
 const HEADER_PROBE_BYTES = ENCRYPTION_CONFIG.headerProbeBytes;
-const CHUNK_PLAIN_SIZE = ENCRYPTION_CONFIG.chunkPlainSize;
 const DEFAULT_PIM = ENCRYPTION_CONFIG.defaultPim;
-const CHECK_MARKER = ENCRYPTION_CONFIG.checkMarker;
-const ML_KEM_SEED_DOMAIN = ENCRYPTION_CONFIG.mlKemSeedDomain;
-const ARGON2_FIXED_PROFILE = ENCRYPTION_CONFIG.argon2FixedProfile || { time: 4, mem: 65536, parallelism: 1 };
-const MAGIC_BYTES = new TextEncoder().encode(MAGIC);
-const DEK_LEN = 32;
-const AUTH_TAG_LEN = 16;
 const DEFAULT_PART_SIZE_BYTES = 50 * 1024 * 1024;
 const UPLOAD_PROGRESS_CHUNK_BYTES = 5 * 1024 * 1024;
 const REQUEST_STREAM_CHUNK_BYTES = 256 * 1024;
+const codec = createCodec({
+  crypto: webcrypto,
+  mlKem: ml_kem768,
+  argon2id: async (password, salt, params) => new Uint8Array(await argon2id({
+    password, salt, iterations: params.time, memorySize: params.mem,
+    parallelism: params.parallelism, hashLength: 32, outputType: 'binary',
+  })),
+});
 
-const subtle = webcrypto.subtle;
 const isTTY = Boolean(process.stdout && process.stdout.isTTY);
 
 const formatProgressBytes = (bytes) => {
@@ -219,404 +212,12 @@ const resolveFileId = async (base, target) => {
   };
 };
 
-const clampArgonParams = (params) => ({
-  time: Math.max(1, Math.min(8, Math.floor(Number(params.time) || 2))),
-  mem: Math.max(16384, Math.min(262144, Math.floor(Number(params.mem) || 32768))),
-  parallelism: 1,
-});
-
-const randomBytes = (length) => {
-  const out = new Uint8Array(length);
-  webcrypto.getRandomValues(out);
-  return out;
-};
-
-const buildCheckPayload = (originalName) => {
-  const payload = {
-    m: CHECK_MARKER,
-    n: String(originalName || 'download.bin').slice(0, 255),
-  };
-  return new TextEncoder().encode(JSON.stringify(payload));
-};
-
-const concatUint8 = (...arrays) => {
-  const total = arrays.reduce((sum, arr) => sum + arr.length, 0);
-  const out = new Uint8Array(total);
-  let offset = 0;
-  for (const arr of arrays) {
-    out.set(arr, offset);
-    offset += arr.length;
-  }
-  return out;
-};
-
-const buildChunkIv = (baseIv, chunkIndex) => {
-  const iv = new Uint8Array(IV_LEN);
-  iv.set(baseIv.slice(0, 4), 0);
-  const view = new DataView(iv.buffer);
-  const high = Math.floor(chunkIndex / 0x100000000);
-  const low = chunkIndex >>> 0;
-  view.setUint32(4, high, false);
-  view.setUint32(8, low, false);
-  return iv;
-};
-
-const getChunkPlainSize = () => Math.max(1024 * 1024, Math.floor(Number(CHUNK_PLAIN_SIZE) || (8 * 1024 * 1024)));
-
-const getHeaderFixedLenForVersion = (version) => (version >= FORMAT_VERSION ? HEADER_FIXED_LEN : 24);
-
-const buildEnvelopeHeader = (salt, checkIv, checkCiphertext, pqCiphertext, wrapIv, wrappedDek, fileIv, argonParams, chunkPlainSize) => {
-  const header = new Uint8Array(HEADER_FIXED_LEN);
-  header.set(MAGIC_BYTES, 0);
-  header[7] = FORMAT_VERSION;
-  header[8] = SALT_LEN;
-  header[9] = IV_LEN;
-  header[10] = argonParams.time;
-  header[11] = argonParams.parallelism;
-  const view = new DataView(header.buffer);
-  view.setUint32(12, argonParams.mem, false);
-  header[16] = CHECK_IV_LEN;
-  view.setUint16(17, checkCiphertext.length, false);
-  header[19] = WRAP_IV_LEN;
-  view.setUint16(20, wrappedDek.length, false);
-  view.setUint16(22, pqCiphertext.length, false);
-  if (HEADER_FIXED_LEN >= 28) {
-    view.setUint32(24, chunkPlainSize, false);
-  }
-
-  return concatUint8(header, salt, checkIv, checkCiphertext, pqCiphertext, wrapIv, wrappedDek, fileIv);
-};
-
-const parseEnvelopeHeader = (bytes) => {
-  if (bytes.length < getHeaderFixedLenForVersion(LEGACY_FORMAT_VERSION)) {
-    throw new Error('Encrypted header is incomplete.');
-  }
-
-  const magic = new TextDecoder().decode(bytes.slice(0, 7));
-  if (magic !== MAGIC) {
-    throw new Error('Unsupported file format.');
-  }
-
-  const version = bytes[7];
-  if (version !== LEGACY_FORMAT_VERSION && version !== FORMAT_VERSION) {
-    throw new Error('Unsupported file format version.');
-  }
-  const headerFixedLen = getHeaderFixedLenForVersion(version);
-
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const saltLen = bytes[8];
-  const ivLen = bytes[9];
-  if (saltLen !== SALT_LEN || ivLen !== IV_LEN) {
-    throw new Error('Unsupported envelope layout.');
-  }
-  const checkIvLen = bytes[16];
-  const checkCipherLen = view.getUint16(17, false);
-  const wrapIvLen = bytes[19];
-  const wrappedDekLen = view.getUint16(20, false);
-  const pqCipherLen = view.getUint16(22, false);
-
-  if (checkIvLen !== CHECK_IV_LEN || checkCipherLen <= 0) {
-    throw new Error('Unsupported encrypted check layout.');
-  }
-  if (wrapIvLen !== WRAP_IV_LEN || wrappedDekLen <= 0) {
-    throw new Error('Unsupported key-wrap layout.');
-  }
-  if (pqCipherLen <= 0) {
-    throw new Error('Unsupported ML-KEM ciphertext layout.');
-  }
-
-  const time = bytes[10];
-  const parallelism = bytes[11];
-  const mem = view.getUint32(12, false);
-
-  const saltStart = headerFixedLen;
-  const checkIvStart = saltStart + saltLen;
-  const checkCipherStart = checkIvStart + checkIvLen;
-  const pqCipherStart = checkCipherStart + checkCipherLen;
-  const wrapIvStart = pqCipherStart + pqCipherLen;
-  const wrappedDekStart = wrapIvStart + wrapIvLen;
-  const fileIvStart = wrappedDekStart + wrappedDekLen;
-  const headerSize = fileIvStart + ivLen;
-  const chunkPlainSize = version >= FORMAT_VERSION ? view.getUint32(24, false) : 0;
-
-  if (bytes.length < headerSize) {
-    throw new Error('Encrypted header is incomplete.');
-  }
-
-  return {
-    version,
-    salt: bytes.slice(saltStart, checkIvStart),
-    checkIv: bytes.slice(checkIvStart, checkCipherStart),
-    checkCiphertext: bytes.slice(checkCipherStart, pqCipherStart),
-    pqCiphertext: bytes.slice(pqCipherStart, wrapIvStart),
-    wrapIv: bytes.slice(wrapIvStart, wrappedDekStart),
-    wrappedDek: bytes.slice(wrappedDekStart, fileIvStart),
-    iv: bytes.slice(fileIvStart, headerSize),
-    chunkPlainSize,
-    argonParams: clampArgonParams({ time, mem, parallelism }),
-    headerSize,
-  };
-};
-
-const parseEnvelope = (bytes) => {
-  const header = parseEnvelopeHeader(bytes);
-  const ivStart = header.headerSize - IV_LEN;
-  const cipherStart = header.headerSize;
-  if (bytes.length <= cipherStart) {
-    throw new Error('Encrypted payload is incomplete.');
-  }
-
-  return {
-    ...header,
-    iv: header.iv || bytes.slice(ivStart, ivStart + IV_LEN),
-    ciphertext: bytes.slice(cipherStart),
-  };
-};
-
-const deriveKek = async (password, pim, salt, params) => {
-  const argonParams = clampArgonParams(params);
-  const derivationSecret = `${password}\u0000${pim}`;
-
-  const keyBytes = await argon2id({
-    password: derivationSecret,
-    salt,
-    iterations: argonParams.time,
-    memorySize: argonParams.mem,
-    parallelism: argonParams.parallelism,
-    hashLength: 32,
-    outputType: 'binary',
-  });
-
-  return new Uint8Array(keyBytes);
-};
-
-const paramsWithSecurity = () => clampArgonParams(ARGON2_FIXED_PROFILE);
-
-const buildMlKemSeed = async (kekBytes) => {
-  const domain = new TextEncoder().encode(ML_KEM_SEED_DOMAIN);
-  const seedMaterial = new Uint8Array(domain.length + kekBytes.length);
-  seedMaterial.set(domain, 0);
-  seedMaterial.set(kekBytes, domain.length);
-  const digest = await subtle.digest('SHA-512', seedMaterial);
-  return new Uint8Array(digest);
-};
-
-const deriveMlKemKeys = async (kekBytes) => {
-  const seed = await buildMlKemSeed(kekBytes);
-  const keyPair = ml_kem768.keygen(seed);
-  if (!keyPair || !keyPair.publicKey || !keyPair.secretKey) {
-    throw new Error('ML-KEM key generation failed.');
-  }
-  return keyPair;
-};
-
-const importAesKeyFromBytes = (bytes, usage) => subtle.importKey(
-  'raw',
-  bytes,
-  { name: 'AES-GCM' },
-  false,
-  [usage]
-);
-
-const parseCheckPayload = (plainBuffer) => {
-  let parsed;
-  try {
-    const text = new TextDecoder().decode(plainBuffer);
-    parsed = JSON.parse(text);
-  } catch {
-    throw new Error('Invalid check payload');
-  }
-
-  if (!parsed || parsed.m !== CHECK_MARKER || typeof parsed.n !== 'string' || !parsed.n.trim()) {
-    throw new Error('Invalid check marker');
-  }
-
-  return {
-    originalName: parsed.n.slice(0, 255),
-  };
-};
-
-const encryptPayload = async (fileBytes, password, pim, originalName) => {
-  const salt = randomBytes(SALT_LEN);
-  const checkIv = randomBytes(CHECK_IV_LEN);
-  const wrapIv = randomBytes(WRAP_IV_LEN);
-  const fileIv = randomBytes(IV_LEN);
-  const argonParams = paramsWithSecurity();
-  const chunkPlainSize = getChunkPlainSize();
-
-  const kekBytes = await deriveKek(password, pim, salt, argonParams);
-  const rawDek = randomBytes(DEK_LEN);
-  const fileKey = await subtle.importKey(
-    'raw',
-    rawDek,
-    { name: 'AES-GCM' },
-    false,
-    ['encrypt', 'decrypt']
-  );
-
-  const mlKemKeys = await deriveMlKemKeys(kekBytes);
-  const pqShared = ml_kem768.encapsulate(mlKemKeys.publicKey);
-  if (!pqShared || !pqShared.cipherText || !pqShared.sharedSecret) {
-    throw new Error('ML-KEM encapsulation failed.');
-  }
-
-  const pqCiphertext = pqShared.cipherText;
-  const pqKey = await importAesKeyFromBytes(pqShared.sharedSecret, 'encrypt');
-  const checkPayload = buildCheckPayload(originalName);
-  const checkCiphertext = new Uint8Array(await subtle.encrypt(
-    { name: 'AES-GCM', iv: checkIv },
-    fileKey,
-    checkPayload
-  ));
-  const wrappedDek = new Uint8Array(await subtle.encrypt(
-    { name: 'AES-GCM', iv: wrapIv },
-    pqKey,
-    rawDek
-  ));
-  const chunks = [];
-  for (let offset = 0, chunkIndex = 0; offset < fileBytes.length; offset += chunkPlainSize, chunkIndex += 1) {
-    const chunkBytes = fileBytes.slice(offset, Math.min(offset + chunkPlainSize, fileBytes.length));
-    chunks.push(new Uint8Array(await subtle.encrypt(
-      { name: 'AES-GCM', iv: buildChunkIv(fileIv, chunkIndex) },
-      fileKey,
-      chunkBytes
-    )));
-  }
-
-  const header = buildEnvelopeHeader(
-    salt,
-    checkIv,
-    checkCiphertext,
-    pqCiphertext,
-    wrapIv,
-    wrappedDek,
-    fileIv,
-    argonParams,
-    chunkPlainSize
-  );
-
-  return {
-    envelopeBytes: concatUint8(header, ...chunks),
-    argonParams,
-  };
-};
-
-const verifyHeaderPassword = async (headerBytes, password, pim) => {
-  const header = parseEnvelopeHeader(headerBytes);
-  const kekBytes = await deriveKek(password, pim, header.salt, header.argonParams);
-
-  try {
-    const mlKemKeys = await deriveMlKemKeys(kekBytes);
-    const pqSharedSecret = ml_kem768.decapsulate(header.pqCiphertext, mlKemKeys.secretKey);
-    if (!pqSharedSecret) {
-      throw new Error('ML-KEM decapsulation failed.');
-    }
-
-    const pqKey = await importAesKeyFromBytes(pqSharedSecret, 'decrypt');
-    const rawDek = await subtle.decrypt(
-      { name: 'AES-GCM', iv: header.wrapIv },
-      pqKey,
-      header.wrappedDek
-    );
-    const fileKey = await subtle.importKey(
-      'raw',
-      rawDek,
-      { name: 'AES-GCM' },
-      false,
-      ['decrypt']
-    );
-    const checkPlain = await subtle.decrypt(
-      { name: 'AES-GCM', iv: header.checkIv },
-      fileKey,
-      header.checkCiphertext
-    );
-
-    const checkInfo = parseCheckPayload(checkPlain);
-    return {
-      originalName: checkInfo.originalName,
-      headerSize: header.headerSize,
-      argonParams: header.argonParams,
-    };
-  } catch {
-    throw new Error('Decryption failed. Check password/PIM.');
-  }
-};
-
-const decryptPayload = async (encryptedBytes, password, pim) => {
-  const parsed = parseEnvelope(encryptedBytes);
-  const kekBytes = await deriveKek(password, pim, parsed.salt, parsed.argonParams);
-
-  try {
-    const mlKemKeys = await deriveMlKemKeys(kekBytes);
-    const pqSharedSecret = ml_kem768.decapsulate(parsed.pqCiphertext, mlKemKeys.secretKey);
-    if (!pqSharedSecret) {
-      throw new Error('ML-KEM decapsulation failed.');
-    }
-    const pqKey = await importAesKeyFromBytes(pqSharedSecret, 'decrypt');
-    const rawDek = await subtle.decrypt(
-      { name: 'AES-GCM', iv: parsed.wrapIv },
-      pqKey,
-      parsed.wrappedDek
-    );
-    const fileKey = await subtle.importKey(
-      'raw',
-      rawDek,
-      { name: 'AES-GCM' },
-      false,
-      ['decrypt']
-    );
-
-    const checkPlain = await subtle.decrypt(
-      { name: 'AES-GCM', iv: parsed.checkIv },
-      fileKey,
-      parsed.checkCiphertext
-    );
-    const checkInfo = parseCheckPayload(checkPlain);
-
-    let plaintextBytes;
-    if (parsed.chunkPlainSize > 0) {
-      const chunks = [];
-      let totalPlaintextLength = 0;
-      let offset = 0;
-      let chunkIndex = 0;
-      const fullChunkCipherSize = parsed.chunkPlainSize + AUTH_TAG_LEN;
-
-      while (offset < parsed.ciphertext.length) {
-        const remaining = parsed.ciphertext.length - offset;
-        const currentCipherSize = remaining > fullChunkCipherSize ? fullChunkCipherSize : remaining;
-        const encryptedChunk = parsed.ciphertext.slice(offset, offset + currentCipherSize);
-        const plainChunk = new Uint8Array(await subtle.decrypt(
-          { name: 'AES-GCM', iv: buildChunkIv(parsed.iv, chunkIndex) },
-          fileKey,
-          encryptedChunk
-        ));
-        chunks.push(plainChunk);
-        totalPlaintextLength += plainChunk.length;
-        offset += currentCipherSize;
-        chunkIndex += 1;
-      }
-
-      plaintextBytes = new Uint8Array(totalPlaintextLength);
-      let writeOffset = 0;
-      for (const chunk of chunks) {
-        plaintextBytes.set(chunk, writeOffset);
-        writeOffset += chunk.length;
-      }
-    } else {
-      plaintextBytes = new Uint8Array(await subtle.decrypt(
-        { name: 'AES-GCM', iv: parsed.iv },
-        fileKey,
-        parsed.ciphertext
-      ));
-    }
-
-    return {
-      plaintext: plaintextBytes,
-      originalName: checkInfo.originalName,
-    };
-  } catch {
-    throw new Error('Decryption failed. Check password/PIM.');
-  }
+const encryptPayload = (bytes, password, pim, originalName) => codec.encrypt(bytes, { password, pim, originalName });
+const decryptPayload = (bytes, password, pim) => codec.decrypt(bytes, password, pim);
+const verifyHeaderPassword = async (bytes, password, pim) => {
+  const session = await codec.createDecryption(bytes, password, pim);
+  codec.destroy(session);
+  return { originalName: session.originalName, headerSize: session.headerSize, encryptedSize: session.encryptedSize, argonParams: session.argonParams };
 };
 
 const askPassword = async (prompt = 'Password: ') => new Promise((resolve, reject) => {
@@ -724,10 +325,10 @@ const getHeaderProbe = async (base, fileId) => {
     throw new Error(payload?.error || 'Failed to download encrypted header');
   }
 
-  return new Uint8Array(await response.arrayBuffer());
+  return readBoundedResponse(response, HEADER_PROBE_BYTES);
 };
 
-const getEncryptedPayload = async (base, fileId) => {
+const getEncryptedPayload = async (base, fileId, expectedSize) => {
   const url = `${base}/api/file/${encodeURIComponent(fileId)}/download`;
   const response = await fetch(url);
 
@@ -740,10 +341,7 @@ const getEncryptedPayload = async (base, fileId) => {
   const progress = createProgressRenderer('Download');
 
   if (!response.body) {
-    const buffer = new Uint8Array(await response.arrayBuffer());
-    progress.update(buffer.byteLength, total);
-    progress.done();
-    return buffer;
+    throw new Error('Streaming response body unavailable.');
   }
 
   const reader = response.body.getReader();
@@ -754,12 +352,14 @@ const getEncryptedPayload = async (base, fileId) => {
     if (done) {
       break;
     }
-    chunks.push(value);
     loaded += value.byteLength;
+    if (loaded > expectedSize) { await reader.cancel(); throw new Error('Oversized encrypted response.'); }
+    chunks.push(value);
     progress.update(loaded, total);
   }
   progress.done();
 
+  if (loaded !== expectedSize) throw new Error('Truncated encrypted response.');
   const merged = new Uint8Array(loaded);
   let offset = 0;
   for (const chunk of chunks) {
@@ -804,7 +404,7 @@ const uploadPart = async (base, uploadId, partNumber, chunkBytes, onProgress) =>
 
   const response = await fetch(url, {
     method: 'POST',
-    headers: { 'content-type': 'application/octet-stream' },
+    headers: { 'content-type': 'application/octet-stream', 'content-length': String(total) },
     body: bodyStream,
     duplex: 'half',
   });
@@ -824,6 +424,7 @@ const uploadPart = async (base, uploadId, partNumber, chunkBytes, onProgress) =>
 
 const uploadEncryptedMultipart = async (base, encryptedBytes, debug = false) => {
   const init = await postJson(`${base}/api/upload/init`, {
+    formatVersion: 6,
     originalName: 'encrypted.bin',
     size: encryptedBytes.byteLength,
   });
@@ -900,12 +501,12 @@ const runGet = async ({ target, base, outDir, pim, debug = false }) => {
   const outputName = sanitizeFileName(verified.originalName);
   debugLog('Password valid. Downloading encrypted file...');
 
-  const encrypted = await getEncryptedPayload(base, resolved.id);
+  const encrypted = await getEncryptedPayload(base, resolved.id, verified.encryptedSize);
   debugLog('Decrypting...');
 
   const decrypted = await decryptPayload(encrypted, password, pim);
   const outputPath = await uniqueOutputPath(outDir, sanitizeFileName(decrypted.originalName || outputName));
-  await writeFile(outputPath, decrypted.plaintext);
+  await writeFile(outputPath, decrypted.plaintext, { flag: 'wx', mode: 0o600 });
 
   console.log(`Saved: ${outputPath}`);
 };
@@ -923,12 +524,13 @@ const runPut = async ({ target, base, pim, debug = false }) => {
   if (!info.isFile()) {
     throw new Error('Provided path is not a file.');
   }
-  if (!Number.isFinite(info.size) || info.size <= 0) {
-    throw new Error('File is empty.');
+  if (!Number.isSafeInteger(info.size) || info.size < 0 || info.size > MAX_PLAINTEXT_SIZE) {
+    throw new Error('File exceeds the encryption size limit.');
   }
 
   debugLog(`File: ${filePath} (${info.size} bytes)`);
   const password = await askPassword('Password: ');
+  if (password.length < 32) throw new Error('Use at least 32 characters from a password manager.');
   const confirmPassword = await askPassword('Confirm password: ');
   if (password !== confirmPassword) {
     throw new Error('Passwords do not match.');

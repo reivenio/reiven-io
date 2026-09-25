@@ -11,7 +11,7 @@
     "start": "node ./bin/reiven.mjs --help"
   },
   "dependencies": {
-    "@noble/post-quantum": "^0.5.4",
+    "@noble/post-quantum": "0.7.1",
     "hash-wasm": "^4.12.0"
   }
 }

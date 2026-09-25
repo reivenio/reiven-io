@@ -1,6 +1,6 @@
+import { parseHeader, readBoundedResponse } from '/envelope.mjs';
 const VERIFY_TIMEOUT_MS = 180000;
 const DECRYPT_TIMEOUT_MS = 300000;
-const LEGACY_FORMAT_VERSION = 4;
 let encryptionConfig = null;
 
 const statusEl = document.getElementById('status');
@@ -231,64 +231,10 @@ const concatUint8Arrays = (left, right) => {
   return out;
 };
 
-const parseEnvelopeHeader = (arrayBuffer) => {
-  const cfg = getEncryptionConfig();
-  const bytes = new Uint8Array(arrayBuffer);
-  const legacyHeaderFixedLen = 24;
-  if (bytes.length < legacyHeaderFixedLen) {
-    throw new Error('Invalid encrypted payload.');
-  }
-
-  const magic = new TextDecoder().decode(bytes.slice(0, 7));
-  if (magic !== cfg.magic) {
-    throw new Error('Unsupported file format.');
-  }
-
-  const version = bytes[7];
-  if (version !== LEGACY_FORMAT_VERSION && version !== cfg.formatVersion) {
-    throw new Error('Unsupported file format version.');
-  }
-  const headerFixedLen = version >= cfg.formatVersion ? cfg.headerFixedLen : legacyHeaderFixedLen;
-
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const mem = view.getUint32(12, false);
-  const saltLen = bytes[8];
-  const ivLen = bytes[9];
-  const checkIvLen = bytes[16];
-  const checkCipherLen = view.getUint16(17, false);
-  const wrapIvLen = bytes[19];
-  const wrappedDekLen = view.getUint16(20, false);
-  const pqCipherLen = view.getUint16(22, false);
-  if (saltLen !== cfg.saltLen || ivLen !== cfg.ivLen) {
-    throw new Error('Unsupported encrypted payload layout.');
-  }
-  if (checkIvLen !== cfg.checkIvLen || checkCipherLen <= 0) {
-    throw new Error('Unsupported encrypted check layout.');
-  }
-  if (wrapIvLen !== cfg.wrapIvLen || wrappedDekLen <= 0) {
-    throw new Error('Unsupported wrapped-key layout.');
-  }
-  if (pqCipherLen <= 0) {
-    throw new Error('Unsupported ML-KEM ciphertext layout.');
-  }
-  const headerSize = headerFixedLen + saltLen + checkIvLen + checkCipherLen + pqCipherLen + wrapIvLen + wrappedDekLen + ivLen;
-  if (bytes.length < headerSize) {
-    throw new Error('Incomplete encrypted header.');
-  }
-  return {
-    version,
-    time: bytes[10],
-    mem,
-    parallelism: bytes[11],
-    chunkPlainSize: version >= cfg.formatVersion ? view.getUint32(24, false) : 0,
-    headerSize,
-  };
-};
-
 const getFileIdFromPath = () => {
   const fromQuery = new URLSearchParams(window.location.search).get('id');
   if (fromQuery) {
-    return decodeURIComponent(fromQuery);
+    return fromQuery;
   }
 
   return null;
@@ -372,8 +318,8 @@ const downloadDecryptedFile = async (id, password, pim) => {
   if (!headerResponse.ok) {
     throw new Error(headerPayload?.error || 'Download failed');
   }
-  const headerBuffer = await headerResponse.arrayBuffer();
-  const headerInfo = parseEnvelopeHeader(headerBuffer);
+  const headerBuffer = (await readBoundedResponse(headerResponse, 4096)).buffer;
+  const headerInfo = parseHeader(headerBuffer);
 
   const verified = await runWithSlowCryptoWarning(() => callWorker(
     'decrypt-init',
@@ -386,7 +332,7 @@ const downloadDecryptedFile = async (id, password, pim) => {
     {
       timeoutMs: VERIFY_TIMEOUT_MS,
       onProgress: () => {
-        startStatusDots(`Validating password with Argon2id (time=${headerInfo.time}, mem=${Math.round(headerInfo.mem / 1024)}MB)`);
+        startStatusDots(`Validating password with Argon2id (time=${headerInfo.argonParams.time}, mem=${Math.round(headerInfo.argonParams.mem / 1024)}MB)`);
       },
     }
   ));
@@ -396,106 +342,43 @@ const downloadDecryptedFile = async (id, password, pim) => {
   const isNote = Boolean(fileMeta && fileMeta.isNote);
   const plaintextChunks = [];
 
-  if (!verified.chunkPlainSize || verified.chunkPlainSize <= 0) {
-    try {
-      showStepStatus('Downloading encrypted file');
-      const fullResponse = await fetch(`/api/file/${encodeURIComponent(id)}/download`);
-      const fullPayload = fullResponse.ok ? null : await parseApiResponse(fullResponse);
-      if (!fullResponse.ok) {
-        throw new Error(fullPayload?.error || 'Download failed');
-      }
-
-      const encryptedBuffer = await fullResponse.arrayBuffer();
-      showStepStatus('Decrypting file');
-      const decrypted = await runWithSlowCryptoWarning(() => callWorker(
-        'decrypt',
-        {
-          encryptedBuffer,
-          password,
-          pim,
-        },
-        [encryptedBuffer],
-        {
-          timeoutMs: DECRYPT_TIMEOUT_MS,
-        }
-      ));
-      plaintextChunks.push(new Uint8Array(decrypted.plaintextBuffer));
-    } finally {
-      try {
-        await callWorker('decrypt-finish', { sessionId: verified.sessionId });
-      } catch {
-        // Ignore worker cleanup failures.
+  let reader;
+  let finished = false;
+  try {
+    const response = await fetch(`/api/file/${encodeURIComponent(id)}/download`, { headers: { range: `bytes=${verified.headerSize}-` } });
+    if (response.status !== 206 || !response.body) throw new Error('Invalid encrypted download response.');
+    const expectedBytes = verified.encryptedSize - verified.headerSize;
+    reader = response.body.getReader();
+    let pending = new Uint8Array(0);
+    let received = 0;
+    let chunkIndex = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      received += value.byteLength;
+      if (received > expectedBytes) throw new Error('Encrypted file contains unexpected trailing data.');
+      pending = concatUint8Arrays(pending, value);
+      showStatus(`Downloading encrypted file ${formatMb(received)}/${formatMb(expectedBytes)} MB`);
+      while (chunkIndex < verified.chunkCount) {
+        const size = Math.min(verified.chunkPlainSize, verified.plainSize - chunkIndex * verified.chunkPlainSize) + 16;
+        if (pending.length < size) break;
+        const encryptedChunk = pending.slice(0, size);
+        pending = pending.slice(size);
+        const decrypted = await runWithSlowCryptoWarning(() => callWorker('decrypt-chunk', {
+          sessionId: verified.sessionId, chunkIndex, chunkBuffer: encryptedChunk.buffer,
+        }, [encryptedChunk.buffer], { timeoutMs: DECRYPT_TIMEOUT_MS }));
+        plaintextChunks.push(new Uint8Array(decrypted.chunkBuffer));
+        chunkIndex += 1;
       }
     }
-  } else {
-    const response = await fetch(`/api/file/${encodeURIComponent(id)}/download`, {
-      headers: {
-        range: `bytes=${verified.headerSize}-`,
-      },
-    });
-    const payload = response.ok ? null : await parseApiResponse(response);
-    if (!response.ok) {
-      throw new Error(payload?.error || 'Download failed');
-    }
-
-    const totalCipherBytes = Number(response.headers.get('content-length') || 0);
-
-    try {
-      if (!response.body) {
-        throw new Error('Streaming response body is unavailable in this browser.');
-      }
-
-      const reader = response.body.getReader();
-      let pending = new Uint8Array(0);
-      let receivedCipherBytes = 0;
-      let chunkIndex = 0;
-      const fullChunkCipherSize = verified.chunkPlainSize + 16;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) {
-          break;
-        }
-
-        receivedCipherBytes += value.byteLength;
-        pending = concatUint8Arrays(pending, value);
-        if (totalCipherBytes > 0) {
-          showStatus(`Downloading encrypted file ${formatMb(receivedCipherBytes)}/${formatMb(totalCipherBytes)} MB`);
-        } else {
-          showStatus(`Downloading encrypted file ${formatMb(receivedCipherBytes)} MB...`);
-        }
-
-        while (pending.length > 0) {
-          const remainingCipherBytes = totalCipherBytes > 0 ? totalCipherBytes - (receivedCipherBytes - pending.length) : null;
-          const expectedCipherSize = remainingCipherBytes && remainingCipherBytes <= fullChunkCipherSize
-            ? remainingCipherBytes
-            : fullChunkCipherSize;
-          if (pending.length < expectedCipherSize) {
-            break;
-          }
-          const encryptedChunk = pending.slice(0, expectedCipherSize);
-          pending = pending.slice(expectedCipherSize);
-          const decryptedChunk = await runWithSlowCryptoWarning(() => callWorker('decrypt-chunk', {
-            sessionId: verified.sessionId,
-            chunkIndex,
-            chunkBuffer: encryptedChunk.buffer,
-          }, [encryptedChunk.buffer], {
-            timeoutMs: DECRYPT_TIMEOUT_MS,
-          }));
-          plaintextChunks.push(new Uint8Array(decryptedChunk.chunkBuffer));
-          chunkIndex += 1;
-        }
-      }
-
-      if (pending.length > 0) {
-        throw new Error('Encrypted payload ended mid-chunk.');
-      }
-    } finally {
-      try {
-        await callWorker('decrypt-finish', { sessionId: verified.sessionId });
-      } catch {
-        // Ignore worker cleanup failures.
-      }
+    if (pending.length || received !== expectedBytes || chunkIndex !== verified.chunkCount) throw new Error('Encrypted file is incomplete.');
+    await callWorker('decrypt-finish', { sessionId: verified.sessionId });
+    finished = true;
+  } finally {
+    await reader?.cancel().catch(() => {});
+    if (!finished) {
+      for (const bytes of plaintextChunks) bytes.fill(0);
+      await callWorker('abort', { sessionId: verified.sessionId }).catch(() => {});
     }
   }
 
@@ -565,6 +448,8 @@ const startDecryptedDownload = async (password, { auto = false } = {}) => {
 };
 
 const initializeDownload = async () => {
+  const autoPassword = getAutoDownloadPassword();
+  scrubAutoDownloadHash();
   try {
     encryptionConfig = await loadEncryptionConfig();
   } catch (error) {
@@ -580,7 +465,6 @@ const initializeDownload = async () => {
   }
 
   const loaded = await loadInfo(fileId);
-  const autoPassword = getAutoDownloadPassword();
   if (loaded && autoPassword && !autoDownloadStarted) {
     autoDownloadStarted = true;
     passwordInputEl.value = '';
