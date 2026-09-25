@@ -5,6 +5,18 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get -y full-upgrade
 
+for kernel_modules in /lib/modules/*; do
+  kernel_version=${kernel_modules##*/}
+  if [ ! -f "/boot/vmlinuz-$kernel_version" ]; then
+    continue
+  fi
+  if [ -f "/boot/initrd.img-$kernel_version" ]; then
+    update-initramfs -u -k "$kernel_version"
+  else
+    update-initramfs -c -k "$kernel_version"
+  fi
+done
+
 getent group reiven >/dev/null || groupadd --system reiven
 id reiven >/dev/null 2>&1 || useradd --system --gid reiven --home-dir /nonexistent --shell /usr/sbin/nologin reiven
 id reiven-admin >/dev/null 2>&1 || useradd --create-home --shell /bin/bash reiven-admin

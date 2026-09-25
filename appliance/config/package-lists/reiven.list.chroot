@@ -2,6 +2,7 @@ ca-certificates
 caddy
 curl
 iproute2
+initramfs-tools
 kmod
 linux-image-generic
 nftables
