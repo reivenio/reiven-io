@@ -118,7 +118,6 @@ lb config \
   --apt-recommends false \
   --apt-secure true \
   --security true \
-  --updates true \
   --memtest none \
   --source false \
   --iso-application "Reiven RAM Appliance" \
