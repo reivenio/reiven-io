@@ -75,7 +75,7 @@ jobs:
           ssh-keygen -l -f /tmp/reiven-authorized-keys
       - name: Build appliance
         run: sudo env REIVEN_AUTHORIZED_KEYS_FILE=/tmp/reiven-authorized-keys REIVEN_OUTPUT_DIR="$GITHUB_WORKSPACE/appliance/dist" ./appliance/build.sh
-      - uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45
+      - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
         with:
           subject-path: appliance/dist/*.iso
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
