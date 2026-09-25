@@ -49,6 +49,7 @@ rg -q --fixed-strings 'XDG_DATA_HOME=/run/caddy-data' "$script_dir/config/includ
 rg -q --fixed-strings 'MemorySwapMax=0' "$script_dir/config/includes.chroot/etc/systemd/system/reiven-direct.service"
 rg -q --fixed-strings 'Storage=volatile' "$script_dir/config/includes.chroot/etc/systemd/journald.conf.d/volatile.conf"
 rg -q '^casper$' "$script_dir/config/package-lists/reiven.list.chroot"
+rg -q '^systemd-sysv$' "$script_dir/config/package-lists/reiven.list.chroot"
 rg -q --fixed-strings 'grub-mkrescue' "$script_dir/build.sh"
 rg -q '^NODE_SHA256=[0-9a-f]{64}$' "$script_dir/versions.env"
 

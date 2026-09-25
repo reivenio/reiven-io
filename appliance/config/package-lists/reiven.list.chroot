@@ -12,4 +12,5 @@ openssl
 sudo
 systemd-timesyncd
 systemd-resolved
+systemd-sysv
 xz-utils
