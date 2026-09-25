@@ -104,7 +104,7 @@ mapfile -t image_packages < <(sed -e 's/[[:space:]]*#.*$//' -e '/^[[:space:]]*$/
 chroot "$rootfs" env DEBIAN_FRONTEND=noninteractive apt-get update
 chroot "$rootfs" env DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends "${image_packages[@]}"
 
-cp -a "$script_dir/config/includes.chroot/." "$rootfs/"
+rsync -a --chown=root:root "$script_dir/config/includes.chroot/" "$rootfs/"
 install -d -m 0755 "$rootfs/opt/reiven"
 rsync -a --delete "$repo_dir/public" "$repo_dir/shared" "$repo_dir/direct-server" "$rootfs/opt/reiven/"
 install -D -o root -g root -m 0600 "$authorized_keys_file" "$rootfs/etc/ssh/authorized_keys/reiven-admin"
@@ -152,6 +152,19 @@ fi
 unmount_chroot
 rm -f "$rootfs/etc/resolv.conf"
 ln -s /run/systemd/resolve/stub-resolv.conf "$rootfs/etc/resolv.conf"
+
+for root_owned_path in \
+  "$rootfs" \
+  "$rootfs/etc" \
+  "$rootfs/etc/ssh" \
+  "$rootfs/etc/ssh/sshd_config.d" \
+  "$rootfs/etc/ssh/authorized_keys" \
+  "$rootfs/etc/ssh/authorized_keys/reiven-admin"; do
+  if [[ $(stat -c '%u:%g' "$root_owned_path") != 0:0 ]]; then
+    echo "Unsafe ownership on image path: ${root_owned_path#"$rootfs"}" >&2
+    exit 1
+  fi
+done
 
 install -d -m 0755 "$iso_root/boot/grub" "$iso_root/casper"
 install -m 0644 "$rootfs/boot/vmlinuz-$kernel_version" "$iso_root/casper/vmlinuz"
