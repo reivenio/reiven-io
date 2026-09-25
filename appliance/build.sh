@@ -46,9 +46,15 @@ fi
 
 build_root=$(mktemp -d "${TMPDIR:-/tmp}/reiven-appliance.XXXXXX")
 cleanup() {
-  mountpoint -q "$build_root/chroot/dev" && umount -l "$build_root/chroot/dev" || true
-  mountpoint -q "$build_root/chroot/proc" && umount -l "$build_root/chroot/proc" || true
-  mountpoint -q "$build_root/chroot/sys" && umount -l "$build_root/chroot/sys" || true
+  if mountpoint -q "$build_root/chroot/dev"; then
+    umount -l "$build_root/chroot/dev" || true
+  fi
+  if mountpoint -q "$build_root/chroot/proc"; then
+    umount -l "$build_root/chroot/proc" || true
+  fi
+  if mountpoint -q "$build_root/chroot/sys"; then
+    umount -l "$build_root/chroot/sys" || true
+  fi
   rm -rf -- "$build_root"
 }
 trap cleanup EXIT
@@ -134,7 +140,8 @@ release_id="$(date -u +%Y%m%d)-${git_commit:0:12}"
 output_image="$output_dir/reiven-appliance-${release_id}-${IMAGE_ARCH}.iso"
 install -m 0644 "$image_path" "$output_image"
 sha256sum "$output_image" > "$output_image.sha256"
-chroot "$build_root/chroot" dpkg-query -W -f='${binary:Package}\t${Version}\n' | sort > "$output_image.packages.tsv"
+dpkg_query_format='${binary:Package}\t${Version}\n'
+chroot "$build_root/chroot" dpkg-query -W -f="$dpkg_query_format" | sort > "$output_image.packages.tsv"
 git -C "$repo_dir" ls-files -s | sort > "$output_image.source-manifest.tsv"
 cp "$build_root/SHASUMS256.txt" "$output_image.node-shasums.txt"
 
