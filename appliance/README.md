@@ -20,11 +20,11 @@ The administrator public key is injected at build time. Public keys are not secr
 
 ## Build Host
 
-Use a disposable Ubuntu 24.04 amd64 builder with at least 16 GiB free disk space. The build needs root privileges because `live-build` uses chroots and mounts.
+Use a disposable Ubuntu 24.04 amd64 builder with at least 16 GiB free disk space. The build needs root privileges because it creates an Ubuntu chroot and mounts its virtual filesystems. The builder uses Ubuntu's `debootstrap` and `casper` packages directly instead of the obsolete `live-build` package shipped by Ubuntu 24.04.
 
 ```bash
 sudo apt-get update
-sudo apt-get install --yes live-build ripgrep rsync shellcheck xorriso squashfs-tools syslinux-utils
+sudo apt-get install --yes debootstrap dosfstools grub-common grub-efi-amd64-bin grub-pc-bin mtools ripgrep rsync shellcheck squashfs-tools xorriso
 cp appliance/authorized_keys.example appliance/authorized_keys
 $EDITOR appliance/authorized_keys
 sudo env REIVEN_AUTHORIZED_KEYS_FILE="$PWD/appliance/authorized_keys" \
@@ -41,6 +41,8 @@ The output directory receives:
 - the upstream Node checksum file used during verification.
 
 The builder downloads Node over HTTPS and verifies the selected archive against both the repository-pinned checksum and Node's published SHA-256 manifest. Ubuntu packages are signature-checked by APT. The image records the Git commit, dirty-tree state, build time, Ubuntu series and Node version in `/etc/reiven-release`.
+
+The ISO uses GRUB for both legacy BIOS and UEFI boot and is suitable for optical or USB-style virtual media. Secure Boot is not enabled in the first framework release; disable Secure Boot on the target until a separately reviewed signed-boot chain is added.
 
 Release builds require a clean Git working tree. A disposable local experiment can opt in to `REIVEN_ALLOW_DIRTY=1`; such an image must not be promoted to production.
 

@@ -43,6 +43,8 @@ ln -sf /dev/null /etc/systemd/system/console-getty.service
 
 systemctl enable nftables.service
 systemctl enable ssh.service
+systemctl enable systemd-networkd.service
+systemctl enable systemd-resolved.service
 systemctl enable systemd-timesyncd.service
 systemctl enable reiven-first-boot.service
 systemctl enable reiven-ephemeral-guard.service
