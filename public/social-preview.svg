@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#080c0e"/>
+  <rect x="28" y="28" width="1144" height="574" rx="20" fill="#0d1117" stroke="#1e2d3d" stroke-width="2"/>
+  <path d="M78 122V66h23c13 0 20 7 20 18S114 102 101 102H78m23 0 22 20" fill="none" stroke="#00ff88" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="153" y="109" font-family="Menlo, Consolas, monospace" font-size="36" font-weight="700" fill="#00ff88">reiven.io</text>
+  <text x="76" y="263" font-family="Arial, sans-serif" font-size="66" font-weight="700" fill="#f0f4f8">Encrypted file</text>
+  <text x="76" y="342" font-family="Arial, sans-serif" font-size="66" font-weight="700" fill="#f0f4f8">&amp; note sharing.</text>
+  <text x="78" y="416" font-family="Arial, sans-serif" font-size="28" fill="#c5d0db">Encrypted in your browser. No accounts.</text>
+  <line x1="78" y1="474" x2="1122" y2="474" stroke="#1e2d3d" stroke-width="2"/>
+  <text x="78" y="540" font-family="Menlo, Consolas, monospace" font-size="22" fill="#00ff88">TEMPORARY SHARING · SERVER-MEMORY STORAGE</text>
+</svg>

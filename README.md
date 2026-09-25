@@ -1,6 +1,6 @@
 # Reiven.io
 
-Zero-knowledge encrypted notes and files. No accounts, no logs.
+[Reiven.io](https://reiven.io/) — encrypted notes and files, with no accounts.
 
 Reiven is a browser-first encrypted sharing service. Payloads are encrypted before upload, held by the server in process memory only, and lost on server restart, deploy, crash, or expiry.
 
@@ -12,7 +12,7 @@ Reiven is a browser-first encrypted sharing service. Payloads are encrypted befo
 - Provides download links and optional receiver-side delete links.
 - Expires uploaded ciphertext automatically based on server TTL.
 - Supports QR Mode with a random browser-generated key embedded in the URL fragment.
-- Serves an indexable public landing page while marking private download pages as `noindex`.
+- Serves static public information pages while excluding sharing tools and private/API routes from indexing.
 
 ## Security Model
 
@@ -47,9 +47,10 @@ Reverse proxy
     v
 direct-server/server.mjs
     |
-    +-- public/ static web app
+    +-- public/ generated public pages and separate sharing tools
     +-- public/vendor/ vendored crypto and QR browser bundles
     +-- shared/encryption-config.mjs shared crypto constants
+    +-- shared/site-pages.mjs public route allowlist and website schema
     +-- process memory: encrypted payloads
     +-- process memory: metadata, code hashes, delete tokens, upload sessions
 ```
@@ -62,7 +63,11 @@ direct-server/server.mjs
 - Assembles completed uploads into memory-backed encrypted payload records.
 - Cleans expired files and abandoned upload sessions from memory.
 - Sends security headers including CSP, `X-Content-Type-Options`, `Referrer-Policy`, and `Permissions-Policy`.
-- Redirects `/index.html` to `/` and `/download.html` to `/download`.
+- Permanently redirects known `.html` aliases and trailing-slash page URLs to canonical routes.
+
+Public pages are plain HTML and load without encryption initialization or JavaScript. `/share` opens file sharing; `/share#note` opens the note editor; `/receive` resolves an access code. `/download?id=...` and existing share URLs remain compatible. Legacy homepage fragments (`/#share`, `/#note`, `/#download`, `/#cli`) redirect to their corresponding routes.
+
+The sharing workspace starts its crypto worker only when sharing is opened, and loads the QR bundle only when generating a QR result. Public pages, including the homepage, do not load either bundle. Private tools have a same-origin-only script/connect CSP; public pages additionally allow Google Analytics. Homepage JSON-LD is permitted using a CSP hash rather than unrestricted inline scripts.
 
 The app still encrypts in chunks. Chunking keeps browser memory lower, supports progress updates, and allows range-based download/decryption for large files.
 
@@ -72,6 +77,9 @@ The app still encrypts in chunks. Chunking keeps browser memory lower, supports 
 - `public/vendor/` — committed browser bundles for Argon2, ML-KEM, and QR generation.
 - `direct-server/` — standalone production Node.js server.
 - `shared/encryption-config.mjs` — shared encryption parameters used by web and CLI.
+- `shared/site-pages.mjs` — public routes and `WebSite` structured data.
+- `scripts/build-pages.mjs` — dependency-free public-page content, templates, and sitemap generator.
+- `direct-server/Caddyfile` — HTTPS apex configuration and permanent `www` redirect.
 - `reiven-cli/` — terminal client for uploads and downloads.
 - `reiven-ps/` — helper documentation and scripts for desktop integration work.
 
@@ -79,14 +87,14 @@ The app still encrypts in chunks. Chunking keeps browser memory lower, supports 
 
 ### Local Development
 
-- Node.js 18 or newer.
+- A currently supported Node.js release (the server requires Node.js 18+ syntax/APIs).
 - `npm`.
 - A modern browser with WebCrypto and Web Worker support.
 
 ### Production Server
 
 - Linux server with SSH access.
-- Node.js 18 or newer at `/usr/bin/node`.
+- A currently supported Node.js release at `/usr/bin/node`.
 - Caddy, nginx, or another HTTPS reverse proxy.
 - A locked-down service user, normally `reiven`.
 - Swap disabled if the deployment promise is that ciphertext never touches disk.
@@ -107,6 +115,14 @@ Build vendored browser assets:
 ```bash
 npm run vendor
 ```
+
+After editing public-page content or routes, regenerate the committed HTML and sitemap:
+
+```bash
+npm run build:pages
+```
+
+Edit `scripts/build-pages.mjs` rather than generated public HTML. Update the generator's `updated` date when publishing substantive content changes. Tool pages (`public/share.html` and `public/download.html`) remain hand-authored. The social preview PNG is committed alongside its editable SVG source. No page build or dependency install is needed on a server deploying the committed assets.
 
 Run the direct server locally:
 
@@ -246,25 +262,24 @@ sudo systemctl status reiven-direct --no-pager
 
 ### 5. Configure HTTPS Reverse Proxy
 
-Caddy example for the apex domain:
+Caddy configuration (also tracked in `direct-server/Caddyfile`):
 
 ```caddyfile
 reiven.io {
+  encode zstd gzip
   reverse_proxy 127.0.0.1:8080
 }
-```
 
-If `www.reiven.io` is used, point DNS at the same server and redirect it to the apex domain:
-
-```caddyfile
 www.reiven.io {
   redir https://reiven.io{uri} permanent
 }
 ```
 
-Reload Caddy:
+Point both hostnames at this server first. Install, validate, and reload Caddy:
 
 ```bash
+sudo cp direct-server/Caddyfile /etc/caddy/Caddyfile
+sudo caddy validate --config /etc/caddy/Caddyfile
 sudo caddy reload --config /etc/caddy/Caddyfile
 ```
 
@@ -278,20 +293,23 @@ sudo caddy reload --config /etc/caddy/Caddyfile
 
 ```bash
 curl -sSI https://reiven.io/
+curl -sSI https://www.reiven.io/security
 curl -fsSL https://reiven.io/api/encryption-config
 curl -fsSL https://reiven.io/robots.txt
 curl -fsSL https://reiven.io/sitemap.xml
 curl -sSI https://reiven.io/download | grep -i x-robots-tag
+curl -sSI https://reiven.io/share | grep -i x-robots-tag
 ```
 
 ## Updating Production
+
+Check `GET /health` before restarting. If `files` or `uploads` is nonzero, postpone the restart until those shares expire or arrange a maintenance window with explicit acceptance of their loss. Back up deployed source and proxy configuration for rollback; this does not back up RAM-held shares. Close the release window to new uploads operationally if an uninterrupted guarantee is required.
 
 From a server clone:
 
 ```bash
 cd /opt/reiven
-sudo git fetch origin
-sudo git reset --hard origin/main
+sudo git pull --ff-only origin main
 sudo chown -R root:root /opt/reiven
 sudo systemctl restart reiven-direct
 sudo systemctl status reiven-direct --no-pager
@@ -376,17 +394,26 @@ The CLI uses the same shared encryption config as the web app.
 
 ## SEO
 
-- `public/index.html` contains the title, description, canonical URL, Open Graph, Twitter, and `index, follow` metadata.
-- `public/robots.txt` allows the homepage and advertises `https://reiven.io/sitemap.xml`.
-- `public/sitemap.xml` lists the canonical homepage.
-- `/download` sends both `noindex` page metadata and `X-Robots-Tag` because share URLs can contain sensitive identifiers.
-- `/index.html` redirects to `/`; `/download.html` redirects to `/download`.
+- Eleven static public pages cover the homepage, encrypted file sharing, notes, security, privacy, About, CLI, a guide index, and three practical guides.
+- Every public page has a unique title/description, self-canonical HTTPS URL, social preview metadata, and crawlable internal links. The homepage adds `WebSite` JSON-LD.
+- `public/sitemap.xml` includes only the public route allowlist in `shared/site-pages.mjs`.
+- `public/robots.txt` permits crawling so crawlers can read exclusion headers; it advertises the sitemap. A robots policy is not an access-control mechanism.
+- `/share`, `/receive`, `/download`, `/delete/*`, `/api/*`, and `/health` send `X-Robots-Tag: noindex, nofollow, noarchive`. Tool and delete HTML also include robots metadata. Private URLs never enter the sitemap or public navigation.
+- Known `.html` page aliases and trailing slashes redirect with HTTP 308. Caddy redirects HTTPS `www` to the apex with HTTP 301, preserving path and query.
 
-After DNS and HTTPS are live, add the domain in Google Search Console and submit:
+The domain is already verified in Google Search Console. Submit or refresh this sitemap and inspect the canonical homepage and key public pages after deployment:
 
 ```text
 https://reiven.io/sitemap.xml
 ```
+
+Track branded queries (`reiven`, `reiven.io`, `reiven encryption`) separately from product queries. Record impressions, clicks, CTR, average position, indexed pages, and mobile performance before comparing subsequent weeks. Indexing and ranking are Google's decisions, not guarantees provided by this implementation.
+
+## Privacy And Analytics
+
+Google Analytics (`G-MY4DKRSGEJ`) loads after page load/idle on public information pages only. Its initializer skips URLs with queries or fragments, sets a canonical page URL and empty referrer, and disables Google Signals and advertising-personalization signals. No custom upload-completion event is sent. Remote Google code remains third-party code where it loads.
+
+Sharing, receiving, download, and delete pages do not load analytics or third-party scripts. QR passwords stay in URL fragments, not query strings. The app does not enable a routine successful-request/upload access log, but application, reverse-proxy, and operating-system errors may be logged to disk, including request details. There is no application-enforced fixed retention period. RAM-only upload storage does not mean “no logs”; see the live [privacy information](https://reiven.io/privacy).
 
 ## Operational Runbook
 
@@ -426,10 +453,13 @@ curl -fsSL http://127.0.0.1:8080/health
 - Run JavaScript syntax checks.
 - Run `npm audit --omit=dev`.
 - Rebuild `public/vendor/` if dependency versions changed.
+- Run `npm run build:pages` after content/template changes and commit generated outputs.
 - Verify upload, download, access-code download, receiver delete, and QR Mode in a browser.
-- Verify `robots.txt`, `sitemap.xml`, and `/download` `noindex`.
+- Verify all sitemap URLs, internal links, canonicals, permanent redirects, `www` HTTPS, and private/API `noindex` headers.
+- Check that public pages display immediately and private tools load no analytics.
 - Push `main`.
 - Deploy to `/opt/reiven`.
+- Recheck `/health`; do not silently discard active shares.
 - Restart `reiven-direct`.
 - Check HTTPS headers and service logs.
 

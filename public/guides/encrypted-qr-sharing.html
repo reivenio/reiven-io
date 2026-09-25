@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>How Encrypted QR Sharing Links Work — Reiven.io</title>
+    <meta name="description" content="Reiven QR Mode generates a random key in your browser and includes it in a QR link. Learn how to share, scan, decrypt, and handle the link privately." />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://reiven.io/guides/encrypted-qr-sharing" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Reiven.io" />
+    <meta property="og:url" content="https://reiven.io/guides/encrypted-qr-sharing" />
+    <meta property="og:title" content="How Encrypted QR Sharing Links Work — Reiven.io" />
+    <meta property="og:description" content="Reiven QR Mode generates a random key in your browser and includes it in a QR link. Learn how to share, scan, decrypt, and handle the link privately." />
+    <meta property="og:image" content="https://reiven.io/social-preview.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Reiven.io — encrypted file and note sharing" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="How Encrypted QR Sharing Links Work — Reiven.io" />
+    <meta name="twitter:description" content="Reiven QR Mode generates a random key in your browser and includes it in a QR link. Learn how to share, scan, decrypt, and handle the link privately." />
+    <meta name="twitter:image" content="https://reiven.io/social-preview.png" />
+    <meta name="theme-color" content="#080c0e" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/analytics.js" defer></script>
+  </head>
+  <body class="public-page">
+    <a class="skip-link" href="#content">Skip to content</a>
+    <div class="app-shell">
+      <header class="site-header"><a class="brand-mark" href="/">reiven.io</a><nav class="site-nav" aria-label="Primary"><a href="/encrypted-file-sharing">Files</a><a href="/encrypted-notes">Notes</a><a href="/security">Security</a><a href="/guides">Guides</a><a href="/cli">CLI</a><a class="nav-action" href="/share">Share</a></nav></header>
+      <main id="content" class="content-page">
+        <a class="back-link" href="/">← Reiven.io</a>
+        <header class="content-intro"><h1>How encrypted QR sharing links work</h1><p class="lead">QR Mode packages the share location and a randomly generated decryption key into one link. It is useful when you want to open a share on another device without typing a password.</p></header>
+        <section class="content-section"><h2>Create and scan a QR share</h2><ol class="steps"><li>Open <a href="/share">file sharing</a> or <a href="/share#note">note sharing</a> and choose your content.</li><li>Enable QR Mode. Reiven generates a random 256-bit key in the browser instead of asking you to choose a password.</li><li>Encrypt and upload. Keep the resulting QR code visible only to the intended recipient.</li><li>Scan the code on the receiving device. The browser uses the included key to decrypt; a file download starts, or a note appears in the page.</li></ol><p>Your device may require you to approve opening the link or saving a download. If scanning is unavailable, the complete QR link can be copied instead.</p></section>
+      <section class="content-section"><h2>Why the link is itself a secret</h2><p>The key is stored in the URL fragment, the part after <code>#</code>. Browsers do not include this fragment in ordinary HTTP requests to the server. The download page reads it locally.</p><p>That separation does not make the full link safe to publish. Anyone who obtains it can decrypt while the share exists. Browser history, copied messages, screenshots, and software that reads links can expose it. Avoid posting QR links to public channels or showing the code on a public screen.</p></section>
+      <section class="content-section"><h2>Choose QR Mode or a separate password</h2><p>QR Mode is convenient for a nearby device or an intended recipient you can give the full link to. Manual password mode lets you send the link and password separately. Both rely on the recipient's device and browser being trustworthy.</p><p>Expiration and deletion are the same in either mode: up to 24 hours, with earlier loss possible on a server restart. Receiver deletion is enabled by default. Learn more about <a href="/guides/memory-only-storage">the storage model</a> and <a href="/security">encryption boundaries</a>.</p></section><div class="page-actions"><a class="cta-btn" href="/share">Create a QR share</a><a class="text-link" href="/receive">Open a received share</a></div>
+      </main>
+      <footer class="footer-note"><p>Encrypted in your browser · Temporary server-memory storage · No accounts</p><nav class="footer-links" aria-label="Project"><a href="/encrypted-file-sharing">Files</a><a href="/encrypted-notes">Notes</a><a href="/security">Security</a><a href="/guides">Guides</a><a href="/cli">CLI</a><a href="/privacy">Privacy</a><a href="/about">About</a><a href="https://github.com/reivenio/reiven-io">Source code</a></nav></footer>
+    </div>
+  </body>
+</html>

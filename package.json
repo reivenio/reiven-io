@@ -4,6 +4,7 @@
   "description": "Zero-knowledge encrypted file and note sharing",
   "private": true,
   "scripts": {
+    "build:pages": "node scripts/build-pages.mjs",
     "dev": "npm run direct:dev",
     "start": "npm run direct:start",
     "direct:dev": "HOST=127.0.0.1 PORT=8080 MAX_FILE_SIZE_MB=512 MAX_MEMORY_STORAGE_MB=2048 node direct-server/server.mjs",

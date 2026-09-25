@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Privacy, Metadata &amp; Logging — Reiven.io</title>
+    <meta name="description" content="Understand Reiven’s temporary encrypted storage, visible metadata, operational logs, browser storage, and Google Analytics on public information pages." />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://reiven.io/privacy" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Reiven.io" />
+    <meta property="og:url" content="https://reiven.io/privacy" />
+    <meta property="og:title" content="Privacy, Metadata &amp; Logging — Reiven.io" />
+    <meta property="og:description" content="Understand Reiven’s temporary encrypted storage, visible metadata, operational logs, browser storage, and Google Analytics on public information pages." />
+    <meta property="og:image" content="https://reiven.io/social-preview.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Reiven.io — encrypted file and note sharing" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Privacy, Metadata &amp; Logging — Reiven.io" />
+    <meta name="twitter:description" content="Understand Reiven’s temporary encrypted storage, visible metadata, operational logs, browser storage, and Google Analytics on public information pages." />
+    <meta name="twitter:image" content="https://reiven.io/social-preview.png" />
+    <meta name="theme-color" content="#080c0e" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/analytics.js" defer></script>
+  </head>
+  <body class="public-page">
+    <a class="skip-link" href="#content">Skip to content</a>
+    <div class="app-shell">
+      <header class="site-header"><a class="brand-mark" href="/">reiven.io</a><nav class="site-nav" aria-label="Primary"><a href="/encrypted-file-sharing">Files</a><a href="/encrypted-notes">Notes</a><a href="/security">Security</a><a href="/guides">Guides</a><a href="/cli">CLI</a><a class="nav-action" href="/share">Share</a></nav></header>
+      <main id="content" class="content-page">
+        <a class="back-link" href="/">← Reiven.io</a>
+        <header class="content-intro"><h1>Privacy, metadata, and logging</h1><p class="lead">No account is needed to use Reiven. Payload contents are encrypted on your device, but operating a sharing service still involves metadata and network information.</p></header>
+        <section class="content-section"><h2>Uploads and share metadata</h2><p>The application receives encrypted content and metadata needed to deliver a share: its filename, encrypted size, identifier, expiry, deletion token, receiver-deletion setting, note flag, access-code hash, and download count. Filenames are not hidden from the service. Passwords and decryption keys are not submitted by the normal upload or download flow.</p><p>Encrypted payloads and their live share records are held in server process memory. Shares expire after 24 hours from upload initialization, can be deleted earlier, and disappear if the service restarts. Abandoned upload sessions are cleaned up after two hours. Cleanup runs periodically; deletion removes the live record but is not a guarantee of immediate forensic erasure from RAM.</p><p>These settings describe the hosted service. A self-hosted deployment can configure different limits. Read <a href="/guides/memory-only-storage">the storage guide</a>.</p></section>
+      <section class="content-section"><h2>Operational and network logs</h2><p>The server and its hosting infrastructure receive client IP addresses to handle connections. Routine successful web requests and successful upload completions are not currently written to a dedicated access log. Application errors, reverse-proxy errors, and operating-system events may be logged.</p><p>Error records can include timestamps, IP addresses, request paths or queries, and request headers, depending on the component. They are separate from the RAM-only upload store and may persist on disk across restarts. There is currently no application-enforced fixed retention period for these operational logs. Reiven therefore does not claim to keep “no logs”.</p></section>
+      <section class="content-section"><h2>Analytics on public information pages</h2><p>The homepage, product information, documentation, and guides use Google Analytics to understand visits. Google receives network information and may use analytics cookies or browser identifiers. The local initializer supplies the canonical public page URL and an empty referrer, disables Google Signals and advertising-personalization signals, and does not intentionally report share identifiers or content.</p><p>Google Analytics is not loaded on the sharing workspace, receive-by-code page, private download pages, or deletion pages. It is also skipped on public-page requests containing a query or fragment. No custom upload-completion events are sent. Browser privacy tools can block analytics requests.</p><p>Read <a href="https://policies.google.com/privacy">Google's privacy policy</a> for how Google handles its services. The remote analytics script remains third-party code on the public pages where it loads.</p></section>
+      <section class="content-section"><h2>Information on your device</h2><p>The sharing tool caches an Argon2 performance estimate in local storage so later visits can prepare encryption more quickly. This cache does not contain a password or payload. Your browser may retain downloaded files, history, QR links, or data copied to the clipboard independently of Reiven's server.</p><p>Clear site data through your browser to remove local storage and cookies. Anyone who receives and decrypts content may keep a copy; deleting the server share cannot erase those copies.</p></section>
+      <section class="content-section"><h2>Questions and project information</h2><p>Reiven is maintained through the <a href="https://github.com/reivenio/reiven-io">Reiven.io project repository</a>. You can raise general privacy questions in its <a href="https://github.com/reivenio/reiven-io/issues">public issue tracker</a>; do not include private links, passwords, IP addresses, or confidential files.</p><p>Read the <a href="/security">security model</a> for encryption details and limitations.</p></section>
+      </main>
+      <footer class="footer-note"><p>Encrypted in your browser · Temporary server-memory storage · No accounts</p><nav class="footer-links" aria-label="Project"><a href="/encrypted-file-sharing">Files</a><a href="/encrypted-notes">Notes</a><a href="/security">Security</a><a href="/guides">Guides</a><a href="/cli">CLI</a><a href="/privacy" aria-current="page">Privacy</a><a href="/about">About</a><a href="https://github.com/reivenio/reiven-io">Source code</a></nav></footer>
+    </div>
+  </body>
+</html>

@@ -3,337 +3,55 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta
-      name="description"
-      content="Reiven.io provides zero-knowledge, quantum-safe encrypted notes and files with no accounts and no logs."
-    />
+    <title>Reiven.io — Encrypted File &amp; Note Sharing</title>
+    <meta name="description" content="Share encrypted files and private notes with Reiven.io. Encrypt in your browser, send a link or QR code, and use temporary storage without creating an account." />
     <meta name="robots" content="index, follow" />
     <link rel="canonical" href="https://reiven.io/" />
     <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Reiven.io" />
     <meta property="og:url" content="https://reiven.io/" />
-    <meta property="og:title" content="Reiven.io — Zero-knowledge encryption" />
-    <meta
-      property="og:description"
-      content="Quantum-safe encrypted notes and files. No accounts, no logs."
-    />
-    <meta name="twitter:card" content="summary" />
-    <meta name="twitter:title" content="Reiven.io — Zero-knowledge encryption" />
-    <meta name="twitter:description" content="Quantum-safe encrypted notes and files. No accounts, no logs." />
+    <meta property="og:title" content="Reiven.io — Encrypted File &amp; Note Sharing" />
+    <meta property="og:description" content="Share encrypted files and private notes with Reiven.io. Encrypt in your browser, send a link or QR code, and use temporary storage without creating an account." />
+    <meta property="og:image" content="https://reiven.io/social-preview.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Reiven.io — encrypted file and note sharing" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Reiven.io — Encrypted File &amp; Note Sharing" />
+    <meta name="twitter:description" content="Share encrypted files and private notes with Reiven.io. Encrypt in your browser, send a link or QR code, and use temporary storage without creating an account." />
+    <meta name="twitter:image" content="https://reiven.io/social-preview.png" />
     <meta name="theme-color" content="#080c0e" />
-    <title>Reiven.io — Zero-knowledge encryption</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/styles.css" />
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-MY4DKRSGEJ"></script>
-    <script src="/analytics.js"></script>
+    <script type="application/ld+json">{"@context":"https://schema.org","@type":"WebSite","name":"Reiven.io","alternateName":"Reiven","url":"https://reiven.io/"}</script>
+    <script src="/navigation.js" defer></script>
+    <script src="/analytics.js" defer></script>
   </head>
-  <body class="app-loading">
-    <section id="startup-overlay" class="startup-overlay" aria-live="polite">
-      <div class="startup-content">
-        <h1>reiven.io</h1>
-        <div class="startup-spinner" aria-hidden="true"></div>
-        <p class="muted">Initializing encrypted workspace...</p>
-      </div>
-    </section>
-
-    <main class="app-shell">
-      <header class="site-header">
-        <button id="brand-home-btn" class="brand-mark" type="button">reiven.io</button>
-        <nav class="site-nav" aria-label="Primary">
-          <button id="tab-share" class="nav-link" type="button" aria-selected="false">share</button>
-          <button id="tab-download" class="nav-link" type="button" aria-selected="false">download</button>
-          <button id="tab-cli" class="nav-link" type="button" aria-selected="false">cli</button>
-        </nav>
-      </header>
-
-      <section id="panel-home" class="page-panel home-panel">
-        <section class="home-hero">
-          <div class="home-copy">
-            <h1 class="home-title">Zero-knowledge encryption</h1>
-            <p class="home-body">
-              Quantum-safe encrypted notes and files.
-              <br />
-              No accounts, no logs.
-            </p>
-            <button id="hero-share-btn" class="cta-btn" type="button">Create a secret note</button>
-          </div>
-        </section>
-
-        <section class="home-how">
-          <h2 class="home-section-title">How it works</h2>
-
-          <article class="how-item">
-            <div class="how-heading">
-              <span class="how-index">01</span>
-              <span class="how-separator">|</span>
-              <h3>Derive the password key</h3>
-            </div>
-            <div class="how-body">
-              <p>Your browser runs Argon2id on your password and PIM to derive a Key Encryption Key (KEK) seed. Strong passwords still matter.</p>
-              <div class="spec-note">Standard: PIM=100, Iterations=4, Memory=64MB. Paranoid: Iterations=6, Memory=128MB.</div>
-            </div>
-          </article>
-
-          <article class="how-item">
-            <div class="how-heading">
-              <span class="how-index">02</span>
-              <span class="how-separator">|</span>
-              <h3>Add the ML-KEM layer</h3>
-            </div>
-            <div class="how-body">
-              <p>
-                A deterministic ML-KEM-768 keypair is derived from the seed. A random Data Encryption Key (DEK) is wrapped via
-                an ML-KEM shared secret, so plaintext keys never leave your device.
-              </p>
-            </div>
-          </article>
-
-          <article class="how-item">
-            <div class="how-heading">
-              <span class="how-index">03</span>
-              <span class="how-separator">|</span>
-              <h3>Encrypt in chunks</h3>
-            </div>
-            <div class="how-body">
-              <p>
-                Notes and files are encrypted before upload with AES-256-GCM, using a random 256-bit DEK and unique per-chunk
-                nonces for large files. The server stores only ciphertext.
-              </p>
-            </div>
-          </article>
-        </section>
+  <body class="public-page">
+    <a class="skip-link" href="#content">Skip to content</a>
+    <div class="app-shell">
+      <header class="site-header"><a class="brand-mark" href="/">reiven.io</a><nav class="site-nav" aria-label="Primary"><a href="/encrypted-file-sharing">Files</a><a href="/encrypted-notes">Notes</a><a href="/security">Security</a><a href="/guides">Guides</a><a href="/cli">CLI</a><a class="nav-action" href="/share">Share</a></nav></header>
+      <main id="content" class="content-page landing-page">
+        <header class="content-intro"><p class="eyebrow">Zero-knowledge encryption</p><h1>Encrypted file and note sharing</h1><p class="lead">Reiven encrypts files and notes in your browser before upload. Share a link or QR code without creating an account. Encrypted uploads are held temporarily in server memory.</p></header>
+        <div class="page-actions"><a class="cta-btn" href="/share">Share a file</a><a class="text-link" href="/receive">Open a received share</a></div>
+      <section class="content-section"><h2>Two ways to share something private</h2>
+        <div class="feature-grid">
+          <article class="feature-card"><h3><a href="/encrypted-file-sharing">Encrypted file sharing</a></h3><p>Send a document or another file with a password-protected link. Your recipient opens it in their browser and decrypts it on their device.</p><a class="text-link" href="/share">Choose a file →</a></article>
+          <article class="feature-card"><h3><a href="/encrypted-notes">Private notes</a></h3><p>Write a message, handover instruction, or private snippet. Reiven encrypts the text before uploading it, just as it does a file.</p><a class="text-link" href="/share#note">Write a note →</a></article>
+        </div>
       </section>
-
-      <section id="panel-share" class="page-panel hidden">
-        <form id="upload-form" class="share-layout">
-          <section class="share-card">
-            <div class="share-main share-editor-main">
-              <div class="share-left">
-                <p class="share-title">share</p>
-
-                <div class="field-block">
-                  <label class="field-label" for="content-type-input">content type</label>
-                  <div class="type-toggle" role="tablist" aria-label="Share type">
-                    <button id="content-type-file-btn" class="type-toggle-btn active" type="button" aria-selected="true">file</button>
-                    <button id="content-type-note-btn" class="type-toggle-btn" type="button" aria-selected="false">note</button>
-                  </div>
-                  <input id="content-type-input" type="hidden" value="file" />
-                </div>
-
-                <div class="field-block">
-                  <label class="field-label" for="password-input">encryption key</label>
-                  <div class="input-shell">
-                    <input type="password" id="password-input" minlength="6" required />
-                    <button type="button" id="password-toggle-btn" class="input-icon-btn" aria-label="Show encryption key" aria-pressed="false">
-                      <svg class="input-icon" viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M2.5 12c2.2-3.6 5.3-5.4 9.5-5.4s7.3 1.8 9.5 5.4c-2.2 3.6-5.3 5.4-9.5 5.4S4.7 15.6 2.5 12Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-                        <circle cx="12" cy="12" r="3.1" fill="none" stroke="currentColor" stroke-width="1.6"/>
-                      </svg>
-                    </button>
-                  </div>
-                  <small id="password-note" class="field-note">Min 32 chars.</small>
-                </div>
-
-                <label class="field-block">
-                  <span class="field-label">encryption profile</span>
-                  <div class="select-shell">
-                    <select id="encryption-type-input">
-                      <option value="standard" selected>Standard</option>
-                      <option value="paranoid">Paranoid</option>
-                    </select>
-                    <svg class="input-icon" viewBox="0 0 24 24" aria-hidden="true">
-                      <path d="M7 10.5 12 15l5-4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-                    </svg>
-                  </div>
-                  <small class="field-note">Paranoid increases Argon2 work factor and can be much slower on weak devices.</small>
-                </label>
-
-                <label class="toggle-row">
-                  <input type="checkbox" id="allow-receiver-delete-input" checked />
-                  <span class="toggle-copy">
-                    <strong>Allow receiver to delete</strong>
-                    <small>If enabled, receiver sees a Delete File button on the download page.</small>
-                  </span>
-                </label>
-
-                <label class="toggle-row">
-                  <input type="checkbox" id="qr-mode-input" />
-                  <span class="toggle-copy">
-                    <strong>QR Mode</strong>
-                    <small>Generate a random in-browser key and QR auto-download link.</small>
-                  </span>
-                </label>
-              </div>
-
-              <div class="share-right">
-                <label id="file-input-wrap" class="field-block upload-block">
-                  <span class="field-label">PAYLOAD</span>
-                  <div class="upload-drop">
-                    <input type="file" id="file-input" />
-                    <div class="upload-drop-inner">
-                      <svg class="upload-icon" viewBox="0 0 64 64" aria-hidden="true">
-                        <rect x="10" y="18" width="44" height="32" rx="6" fill="none" stroke="currentColor" stroke-width="2.5"/>
-                        <path d="M32 42V22m0 0-8 8m8-8 8 8" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-                      </svg>
-                      <span id="file-drop-text">Select or drop a file to upload</span>
-                    </div>
-                  </div>
-                </label>
-                <label id="note-input-wrap" class="field-block note-block">
-                  <span id="note-input-label" class="field-label">PAYLOAD</span>
-                  <textarea id="note-input" rows="12"></textarea>
-                </label>
-                <div id="status" class="share-inline-note hidden">Loading stuff here</div>
-              </div>
-
-              <button type="submit" id="upload-btn" class="cta-btn share-cta">Encrypt & Upload</button>
-            </div>
-          </section>
-
-          <section class="security-strip">
-            <div class="security-strip-head">
-              <strong id="security-profile-label">Security profile: Standard</strong>
-              <span id="benchmark-status">Preparing in-browser encryption...</span>
-            </div>
-            <p id="security-estimate">Estimated key setup time on this device: calculating...</p>
-            <p id="security-details">Encryption details are loading...</p>
-            <p id="bruteforce-estimate">Password strength estimate appears after you type a password.</p>
-          </section>
-        </form>
-
-        <section id="links" class="share-layout hidden">
-          <section class="share-card upload-complete-summary">
-            <div class="upload-complete-summary-body">
-              <p class="share-title">upload complete.</p>
-              <p id="upload-complete-expiry" class="upload-complete-expiry">Expires at --</p>
-            </div>
-          </section>
-
-          <section class="share-card upload-complete-details">
-            <div class="share-main complete-main">
-              <div class="share-right complete-links">
-                <div class="complete-block">
-                  <p class="share-title">share details</p>
-
-                  <div class="complete-notes">
-                    <div class="result-note">
-                      <div class="result-copy">
-                        <p class="field-label">code</p>
-                        <p id="access-code" class="result-value"></p>
-                      </div>
-                      <button id="copy-code-btn" type="button" class="cta-btn mini-cta-btn">Copy</button>
-                    </div>
-
-                    <div class="result-note">
-                      <div class="result-copy">
-                        <p class="field-label">download</p>
-                        <a id="download-link" class="result-value result-link" href="#"></a>
-                      </div>
-                      <button id="copy-download-btn" type="button" class="cta-btn mini-cta-btn">Copy</button>
-                    </div>
-
-                    <div id="qr-row" class="result-note qr-result hidden">
-                      <div class="result-copy">
-                        <p class="field-label">QR Mode</p>
-                        <div id="qr-code" class="qr-code" aria-label="QR auto-download link"></div>
-                        <a id="qr-link" class="result-value result-link" href="#"></a>
-                        <small class="field-note">The QR link contains the decryption key in the browser-only URL fragment. Treat it like the secret.</small>
-                      </div>
-                      <button id="copy-qr-btn" type="button" class="cta-btn mini-cta-btn">Copy</button>
-                    </div>
-
-                    <div id="delete-row" class="result-note">
-                      <div class="result-copy">
-                        <p class="field-label">delete</p>
-                        <a id="delete-link" class="result-value result-link" href="#"></a>
-                      </div>
-                      <button id="copy-delete-btn" type="button" class="cta-btn mini-cta-btn">Copy</button>
-                    </div>
-                  </div>
-
-                  <p id="complete-note" class="field-note complete-note">Share the download URL/code and password separately.</p>
-                </div>
-              </div>
-            </div>
-          </section>
-        </section>
+      <section class="content-section"><h2>How it works</h2>
+        <ol class="steps"><li><h3>Choose your content</h3><p>Select a file or write a note. Choose a strong password, or let QR Mode generate a random key in your browser.</p></li><li><h3>Encrypt and share</h3><p>Encryption happens on your device. Send the download link or access code, and share a manually chosen password separately. A QR link includes its key, so anyone with that link can open the content.</p></li><li><h3>Open before expiry</h3><p>The recipient decrypts in their browser. Uploads expire after 24 hours, or disappear earlier if deleted or the server restarts. Receiver deletion is enabled by default.</p></li></ol>
       </section>
-
-      <section id="panel-download" class="page-panel download-shell hidden">
-        <section class="utility-card download-card">
-          <form id="code-download-form" class="download-form">
-            <p class="share-title">download</p>
-
-            <div class="field-block download-code-block">
-              <label class="field-label download-field-label" for="code-segment-1">file code</label>
-              <div class="download-code-grid" role="group" aria-label="File code">
-                <input id="code-segment-1" class="download-code-input" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="2" placeholder="" />
-                <input id="code-segment-2" class="download-code-input" type="text" inputmode="numeric" maxlength="2" placeholder="" />
-                <input id="code-segment-3" class="download-code-input" type="text" inputmode="numeric" maxlength="2" placeholder="" />
-                <input id="code-segment-4" class="download-code-input" type="text" inputmode="numeric" maxlength="2" placeholder="" />
-              </div>
-              <input type="hidden" id="code-input" required />
-              <small class="field-note download-field-note">Enter the 8-digit code (dashes optional)</small>
-            </div>
-
-            <button type="submit" class="cta-btn download-open-btn">Open</button>
-          </form>
-        </section>
-        <section id="code-status" class="utility-card download-secondary-card hidden"></section>
-      </section>
-
-      <section id="panel-cli" class="page-panel hidden">
-        <section class="utility-card cli-card">
-          <div class="cli-layout">
-            <div class="cli-sidebar">
-              <p class="share-title">reiven cli</p>
-              <p class="field-note cli-body-copy">Install and use the terminal client to upload or download encrypted files.</p>
-              <div class="spec-note cli-note">
-                Info: Use the same password rules as the web flow. CLI prompts mask password input.
-              </div>
-            </div>
-            <div class="cli-content">
-              <div class="cli-code-wrap">
-                <div class="cli-code-head">Install</div>
-                <pre class="cli-code"><code># From the project root:
-cd reiven-cli
-npm install
-npm link
-
-# Verify command:
-reiven --help</code></pre>
-              </div>
-              <div class="cli-code-wrap cli-code-wrap-highlight">
-                <div class="cli-code-head">Upload</div>
-                <pre class="cli-code"><code># Upload a file (prompts for password):
-reiven put secret.pdf
-
-Password: *********
-
-Access code: *** 80-94-86-60 ***
-Download URL: https://reiven.io/download?id=b05b053a745aed1dfb
-Delete URL: https://reiven.io/delete/b05b053a745aed1dfb/d8b97cbd72640936c9800b3289269f6f7274c7d631d7af6d
-Expires at: 2026-02-27T07:02:58.120Z</code></pre>
-              </div>
-              <div class="cli-code-wrap">
-                <div class="cli-code-head">Download</div>
-                <pre class="cli-code"><code># Download by access code:
-reiven get 80948660
-
-Password: *********
-
-Saved: /Users/reiven/Documents/secret.pdf</code></pre>
-              </div>
-            </div>
-          </div>
-        </section>
-      </section>
-
-      <footer class="footer-note">
-        Server sees only ciphertext · AES-256-GCM · Argon2id · No accounts · Zero retention
-      </footer>
-    </main>
-
-    <script src="/vendor/qrcode.min.js" defer></script>
-    <script src="/upload.js" defer></script>
+      <section class="content-section"><h2>Encryption with a clear storage policy</h2><p>Reiven combines AES-256-GCM payload encryption with Argon2id password processing and an ML-KEM-768 post-quantum key-wrapping layer. Password strength and device security still matter.</p><p>The application keeps encrypted uploads in RAM, without writing them to application-managed disk files. Temporary sharing is not a backup: keep your own copy until the recipient has saved theirs.</p><p><a href="/security">Read the security model</a> and <a href="/privacy">what information the service processes</a>.</p></section>
+      <section class="content-section"><h2>Before you send</h2><div class="faq-list">
+        <details><summary>Do I need an account?</summary><p>No account is required to share or receive through the website. For terminal use, there is also a <a href="/cli">command-line client</a>.</p></details>
+        <details><summary>How large can an upload be?</summary><p>The hosted service accepts an encrypted upload of up to 512 MiB, including encryption overhead. Choose an original file slightly below that limit. Text notes have a 10 MiB limit. Available server memory and your browser can impose further limits.</p></details>
+        <details><summary>Does reading a note delete it?</summary><p>No. Notes remain available until expiry, explicit deletion, or a server restart. If receiver deletion is enabled, the recipient can delete the share after reading it.</p></details>
+        <details><summary>Can a lost password be recovered?</summary><p>Reiven has no password recovery. Ask the sender for the password or another copy. Keep a QR link private: it contains the key needed to decrypt that share.</p></details>
+      </div></section>
+      </main>
+      <footer class="footer-note"><p>Encrypted in your browser · Temporary server-memory storage · No accounts</p><nav class="footer-links" aria-label="Project"><a href="/encrypted-file-sharing">Files</a><a href="/encrypted-notes">Notes</a><a href="/security">Security</a><a href="/guides">Guides</a><a href="/cli">CLI</a><a href="/privacy">Privacy</a><a href="/about">About</a><a href="https://github.com/reivenio/reiven-io">Source code</a></nav></footer>
+    </div>
   </body>
 </html>

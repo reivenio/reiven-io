@@ -35,15 +35,10 @@ const fileDropTextEl = document.getElementById('file-drop-text');
 const noteInputWrapEl = document.getElementById('note-input-wrap');
 const noteInputEl = document.getElementById('note-input');
 const noteInputLabelEl = document.getElementById('note-input-label');
-const brandHomeBtnEl = document.getElementById('brand-home-btn');
-const heroShareBtnEl = document.getElementById('hero-share-btn');
 const tabShareEl = document.getElementById('tab-share');
 const tabDownloadEl = document.getElementById('tab-download');
-const tabCliEl = document.getElementById('tab-cli');
-const panelHomeEl = document.getElementById('panel-home');
 const panelShareEl = document.getElementById('panel-share');
 const panelDownloadEl = document.getElementById('panel-download');
-const panelCliEl = document.getElementById('panel-cli');
 const contentTypeFileBtnEl = document.getElementById('content-type-file-btn');
 const contentTypeNoteBtnEl = document.getElementById('content-type-note-btn');
 const codeDownloadForm = document.getElementById('code-download-form');
@@ -54,8 +49,6 @@ const qrCodeEl = document.getElementById('qr-code');
 const qrLinkEl = document.getElementById('qr-link');
 const copyQrBtn = document.getElementById('copy-qr-btn');
 const completeNoteEl = document.getElementById('complete-note');
-const codeSegmentEls = Array.from(document.querySelectorAll('.download-code-input'));
-const startupOverlayEl = document.getElementById('startup-overlay');
 const ENCRYPTION_TYPE_STANDARD = 'standard';
 const ENCRYPTION_TYPE_PARANOID = 'paranoid';
 const CONTENT_TYPE_FILE = 'file';
@@ -63,7 +56,10 @@ const CONTENT_TYPE_NOTE = 'note';
 const encoder = new TextEncoder();
 const MAX_NOTE_BYTES = 10 * 1024 * 1024;
 
-const worker = new Worker('/crypto-worker.js');
+let worker = null;
+let workerStartupTimeout = null;
+let initializationPromise = null;
+let qrLibraryPromise = null;
 let nextRequestId = 1;
 const pending = new Map();
 let workerReadyResolve;
@@ -89,10 +85,11 @@ const clearPendingWithError = (message) => {
   pending.clear();
 };
 
-worker.onmessage = (event) => {
+const handleWorkerMessage = (event) => {
   const msg = event.data || {};
 
   if (msg.type === 'ready') {
+    clearTimeout(workerStartupTimeout);
     if (msg.ok) {
       workerReadyResolve();
     } else {
@@ -128,17 +125,32 @@ worker.onmessage = (event) => {
   }
 };
 
-worker.onerror = (event) => {
+const handleWorkerError = (event) => {
+  clearTimeout(workerStartupTimeout);
   const message = event?.message || 'Crypto worker crashed.';
+  uploadBtn.disabled = true;
   workerReadyReject(new Error(message));
   clearPendingWithError(message);
   console.error('[crypto-worker error]', event);
 };
 
-worker.onmessageerror = (event) => {
+const handleWorkerMessageError = (event) => {
   const message = 'Crypto worker message parsing failed.';
   clearPendingWithError(message);
   console.error('[crypto-worker messageerror]', event);
+};
+
+const startCryptoWorker = () => {
+  if (worker) {
+    return;
+  }
+  worker = new Worker('/crypto-worker.js');
+  worker.onmessage = handleWorkerMessage;
+  worker.onerror = handleWorkerError;
+  worker.onmessageerror = handleWorkerMessageError;
+  workerStartupTimeout = setTimeout(() => {
+    workerReadyReject(new Error('Encryption initialization timed out. Please reload to try again.'));
+  }, 30000);
 };
 
 const callWorker = (type, payload, transfer = [], options = {}) => new Promise((resolve, reject) => {
@@ -218,13 +230,6 @@ const hideCodeStatus = () => {
   codeStatusEl.textContent = '';
   codeStatusEl.classList.add('hidden');
   codeStatusEl.classList.remove('error');
-};
-
-const finishStartupLoading = () => {
-  document.body.classList.remove('app-loading');
-  if (startupOverlayEl) {
-    startupOverlayEl.setAttribute('aria-hidden', 'true');
-  }
 };
 
 const copyToClipboard = async (value, button) => {
@@ -353,18 +358,31 @@ const clearQrResult = () => {
   }
 };
 
+const loadQrLibrary = () => {
+  if (!qrLibraryPromise) {
+    qrLibraryPromise = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = '/vendor/qrcode.min.js';
+      script.onload = resolve;
+      script.onerror = () => {
+        qrLibraryPromise = null;
+        script.remove();
+        reject(new Error('QR library unavailable'));
+      };
+      document.head.append(script);
+    });
+  }
+  return qrLibraryPromise;
+};
+
 const renderQrResult = async (qrDownloadUrl) => {
   if (!qrRowEl || !qrCodeEl || !qrLinkEl) {
     return;
   }
   qrLinkEl.href = qrDownloadUrl;
   qrLinkEl.textContent = qrDownloadUrl;
-  if (!window.ReivenQR || typeof window.ReivenQR.toString !== 'function') {
-    qrCodeEl.textContent = 'QR unavailable. Copy the QR link instead.';
-    qrRowEl.classList.remove('hidden');
-    return;
-  }
   try {
+    await loadQrLibrary();
     const svg = await window.ReivenQR.toString(qrDownloadUrl, {
       type: 'svg',
       errorCorrectionLevel: 'M',
@@ -703,88 +721,21 @@ const formatCode = (value) => {
   return normalized ? normalized.match(/.{1,2}/g).join('-') : null;
 };
 
-const sanitizeCodeSegment = (value) => {
-  return String(value || '').replace(/\D/g, '').slice(0, 2);
-};
-
-const syncCodeInput = () => {
-  if (!codeInputEl) {
-    return null;
-  }
-  const value = codeSegmentEls.map((input) => sanitizeCodeSegment(input.value)).join('');
-  codeInputEl.value = value;
-  return value;
-};
-
-const applyCodeDigits = (digits) => {
-  const normalized = String(digits || '').replace(/\D/g, '').slice(0, 8);
-  codeSegmentEls.forEach((input, index) => {
-    input.value = normalized.slice(index * 2, index * 2 + 2);
-  });
-  syncCodeInput();
-};
-
-const initializeCodeInputs = () => {
-  if (!codeSegmentEls.length) {
-    return;
-  }
-
-  codeSegmentEls.forEach((input, index) => {
-    input.addEventListener('input', (event) => {
-      const sanitized = sanitizeCodeSegment(event.target.value);
-      event.target.value = sanitized;
-      syncCodeInput();
-      hideCodeStatus();
-      if (sanitized.length === 2 && index < codeSegmentEls.length - 1) {
-        codeSegmentEls[index + 1].focus();
-        codeSegmentEls[index + 1].select();
-      }
-    });
-
-    input.addEventListener('keydown', (event) => {
-      if (event.key === 'Backspace' && !event.currentTarget.value && index > 0) {
-        codeSegmentEls[index - 1].focus();
-        codeSegmentEls[index - 1].select();
-      }
-    });
-
-    input.addEventListener('paste', (event) => {
-      event.preventDefault();
-      const pasted = event.clipboardData?.getData('text') || '';
-      const digits = pasted.replace(/\D/g, '');
-      if (!digits) {
-        return;
-      }
-      applyCodeDigits(digits);
-      const nextIndex = Math.min(Math.ceil(Math.min(digits.length, 8) / 2), codeSegmentEls.length - 1);
-      codeSegmentEls[nextIndex].focus();
-      codeSegmentEls[nextIndex].select();
-      hideCodeStatus();
-    });
-  });
-};
-
 const setActiveTab = (tab) => {
-  const isHome = tab === 'home';
   const isShare = tab === 'share';
   const isDownload = tab === 'download';
-  const isCli = tab === 'cli';
   if (tabShareEl) {
     tabShareEl.classList.toggle('active', isShare);
-    tabShareEl.setAttribute('aria-selected', String(isShare));
+    if (isShare) tabShareEl.setAttribute('aria-current', 'page');
+    else tabShareEl.removeAttribute('aria-current');
   }
   if (tabDownloadEl) {
     tabDownloadEl.classList.toggle('active', isDownload);
-    tabDownloadEl.setAttribute('aria-selected', String(isDownload));
+    if (isDownload) tabDownloadEl.setAttribute('aria-current', 'page');
+    else tabDownloadEl.removeAttribute('aria-current');
   }
-  if (tabCliEl) {
-    tabCliEl.classList.toggle('active', isCli);
-    tabCliEl.setAttribute('aria-selected', String(isCli));
-  }
-  panelHomeEl.classList.toggle('hidden', !isHome);
   panelShareEl.classList.toggle('hidden', !isShare);
   panelDownloadEl.classList.toggle('hidden', !isDownload);
-  panelCliEl.classList.toggle('hidden', !isCli);
 };
 
 const setContentType = (value) => {
@@ -795,12 +746,12 @@ const setContentType = (value) => {
   if (contentTypeFileBtnEl) {
     const isFile = type === CONTENT_TYPE_FILE;
     contentTypeFileBtnEl.classList.toggle('active', isFile);
-    contentTypeFileBtnEl.setAttribute('aria-selected', String(isFile));
+    contentTypeFileBtnEl.setAttribute('aria-pressed', String(isFile));
   }
   if (contentTypeNoteBtnEl) {
     const isNote = type === CONTENT_TYPE_NOTE;
     contentTypeNoteBtnEl.classList.toggle('active', isNote);
-    contentTypeNoteBtnEl.setAttribute('aria-selected', String(isNote));
+    contentTypeNoteBtnEl.setAttribute('aria-pressed', String(isNote));
   }
   if (fileInputWrapEl) {
     fileInputWrapEl.classList.toggle('hidden', type === CONTENT_TYPE_NOTE);
@@ -941,7 +892,7 @@ const updateSecurityEstimate = () => {
     securityProfileLabelEl.textContent = `Security profile: ${selectedParams.label}`;
   }
   securityEstimateEl.textContent = `Estimated key setup time on this device: ~${formatMs(selectedTime)}.`;
-  securityDetailsEl.textContent = `Your password is processed locally with Argon2id (PIM=${getDefaultPim()}, iterations=${selectedParams.time}, memory=${memMb}MB). Reiven wraps a random file key with ML-KEM-768, then encrypts notes and file chunks in-browser with AES-256-GCM before upload. The server stores only ciphertext. Strong passwords remain critical.`;
+  securityDetailsEl.textContent = `Your password is processed locally with Argon2id (PIM=${getDefaultPim()}, iterations=${selectedParams.time}, memory=${memMb}MB). Reiven wraps a random file key with ML-KEM-768, then encrypts notes and file chunks in-browser with AES-256-GCM before upload. The server holds encrypted payloads and operational metadata in memory. Strong passwords remain critical.`;
   updateBruteForceEstimate();
 };
 
@@ -1019,8 +970,8 @@ const initializeSecurityControls = async () => {
   uploadBtn.disabled = true;
   benchmarkStatusEl.textContent = 'Preparing in-browser encryption...';
 
+  await workerReady;
   try {
-    await workerReady;
     calibrationProfile = await getCalibrationProfile();
     benchmarkStatusEl.textContent = 'In-browser encryption ready.';
     uploadBtn.disabled = false;
@@ -1034,8 +985,6 @@ const initializeSecurityControls = async () => {
     };
     uploadBtn.disabled = false;
     updateSecurityEstimate();
-  } finally {
-    finishStartupLoading();
   }
 };
 
@@ -1110,26 +1059,18 @@ if (uploadDropEl) {
     syncFileInput(file);
   });
 }
-if (brandHomeBtnEl) {
-  brandHomeBtnEl.addEventListener('click', () => setActiveTab('home'));
-}
-if (heroShareBtnEl) {
-  heroShareBtnEl.addEventListener('click', () => {
-    setContentType(CONTENT_TYPE_NOTE);
-    setActiveTab('share');
-  });
-}
-tabShareEl.addEventListener('click', () => setActiveTab('share'));
-tabDownloadEl.addEventListener('click', () => setActiveTab('download'));
-tabCliEl.addEventListener('click', () => setActiveTab('cli'));
 codeInputEl.addEventListener('input', () => {
   const digits = String(codeInputEl.value || '').replace(/\D/g, '').slice(0, 8);
   const groups = digits.match(/.{1,2}/g);
   codeInputEl.value = groups ? groups.join('-') : '';
+  hideCodeStatus();
 });
 
 uploadForm.addEventListener('submit', async (event) => {
   event.preventDefault();
+  if (uploadBtn.disabled || !encryptionConfig || !worker) {
+    return;
+  }
 
   const passwordInput = document.getElementById('password-input');
   const file = selectedFile || (fileInputEl ? fileInputEl.files?.[0] : null);
@@ -1306,7 +1247,7 @@ if (copyQrBtn && qrLinkEl) {
 codeDownloadForm.addEventListener('submit', async (event) => {
   event.preventDefault();
 
-  const codeRaw = normalizeCode(syncCodeInput());
+  const codeRaw = normalizeCode(codeInputEl.value);
   if (!codeRaw) {
     showCodeStatus('Invalid code. Use 8 digits, for example 12-34-56-78.', true);
     return;
@@ -1330,24 +1271,32 @@ codeDownloadForm.addEventListener('submit', async (event) => {
   }
 });
 
-const initializeApp = async () => {
-  initializeCodeInputs();
-  try {
-    encryptionConfig = await loadEncryptionConfig();
-  } catch (error) {
-    uploadBtn.disabled = true;
-    benchmarkStatusEl.textContent = error.message || 'Could not load encryption config.';
-    showStatus(error.message || 'Could not load encryption config.', true);
-    finishStartupLoading();
-    return;
+const initializeApp = () => {
+  if (!initializationPromise) {
+    initializationPromise = (async () => {
+      try {
+        encryptionConfig = await loadEncryptionConfig();
+        startCryptoWorker();
+        await initializeSecurityControls();
+      } catch (error) {
+        uploadBtn.disabled = true;
+        benchmarkStatusEl.textContent = 'Encryption could not start. Reload to try again.';
+        showStatus(error.message || 'Could not prepare encryption.', true);
+      }
+    })();
   }
-  if (encryptionTypeInputEl) {
-    encryptionTypeInputEl.value = getDefaultEncryptionType();
-  }
-  setQrModeState();
-  clearQrResult();
-  setContentType(contentTypeInputEl?.value || CONTENT_TYPE_FILE);
-  initializeSecurityControls();
+  return initializationPromise;
 };
 
-initializeApp();
+const applyWorkspaceRoute = () => {
+  const isDownload = window.location.pathname === '/receive';
+  setActiveTab(isDownload ? 'download' : 'share');
+  document.title = isDownload ? 'Open an Encrypted Share — Reiven.io' : 'Share Encrypted Files & Notes — Reiven.io';
+  if (!isDownload) {
+    setContentType(window.location.hash === '#note' ? CONTENT_TYPE_NOTE : CONTENT_TYPE_FILE);
+    initializeApp();
+  }
+};
+
+window.addEventListener('hashchange', applyWorkspaceRoute);
+applyWorkspaceRoute();

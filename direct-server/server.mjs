@@ -4,10 +4,14 @@ import { createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto
 import { createServer } from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PUBLIC_PAGE_PATHS, SITE_SCHEMA } from '../shared/site-pages.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..');
-const PUBLIC_DIR = process.env.PUBLIC_DIR || path.join(REPO_ROOT, 'public');
+const PUBLIC_DIR = path.resolve(process.env.PUBLIC_DIR || path.join(REPO_ROOT, 'public'));
+const PUBLIC_PAGES = new Set(PUBLIC_PAGE_PATHS);
+const TOOL_PAGES = new Set(['/share', '/receive', '/download']);
+const SCHEMA_HASH = createHash('sha256').update(SITE_SCHEMA).digest('base64');
 
 const HOST = process.env.HOST || '127.0.0.1';
 const PORT = Number(process.env.PORT || 8080);
@@ -35,21 +39,30 @@ const BASE_SECURITY_HEADERS = Object.freeze({
   'permissions-policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
 });
 
-const buildContentSecurityPolicy = (scriptNonce = '') => {
+const buildContentSecurityPolicy = (scriptNonce = '', publicPage = false) => {
   const scriptSrc = ["'self'", "'wasm-unsafe-eval'"];
   if (scriptNonce) {
     scriptSrc.push(`'nonce-${scriptNonce}'`);
   }
+  if (publicPage) {
+    scriptSrc.push(`'sha256-${SCHEMA_HASH}'`, 'https://www.googletagmanager.com');
+  }
+  const analyticsConnect = publicPage
+    ? ' https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com'
+    : '';
+  const analyticsImages = publicPage
+    ? ' https://*.google-analytics.com https://*.googletagmanager.com'
+    : '';
   return [
     "default-src 'self'",
     "base-uri 'none'",
     "object-src 'none'",
     "frame-ancestors 'none'",
     "form-action 'self'",
-    "connect-src 'self' https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com",
-    "img-src 'self' data: https://*.google-analytics.com https://*.googletagmanager.com",
+    `connect-src 'self'${analyticsConnect}`,
+    `img-src 'self' data:${analyticsImages}`,
     "style-src 'self'",
-    `script-src ${scriptSrc.join(' ')} https://www.googletagmanager.com`,
+    `script-src ${scriptSrc.join(' ')}`,
     "worker-src 'self'",
     "upgrade-insecure-requests",
   ].join('; ');
@@ -203,7 +216,7 @@ const noContent = (res) => {
 };
 
 const redirect = (res, location) => {
-  res.writeHead(307, withSecurityHeaders({
+  res.writeHead(308, withSecurityHeaders({
     location,
     'cache-control': 'no-store',
     'content-length': '0',
@@ -316,6 +329,7 @@ const mimeFor = (filePath) => {
   if (ext === '.txt') return 'text/plain; charset=utf-8';
   if (ext === '.wasm') return 'application/wasm';
   if (ext === '.svg') return 'image/svg+xml';
+  if (ext === '.png') return 'image/png';
   if (ext === '.ico') return 'image/x-icon';
   return 'application/octet-stream';
 };
@@ -324,23 +338,25 @@ const resolvePublicPath = (pathname) => {
   let routePath = decodeURIComponent(pathname);
   if (routePath === '/') {
     routePath = '/index.html';
+  } else if (routePath === '/share' || routePath === '/receive') {
+    routePath = '/share.html';
   } else if (routePath === '/download') {
     routePath = '/download.html';
+  } else if (PUBLIC_PAGES.has(routePath)) {
+    routePath = `${routePath}.html`;
   }
   const normalized = path.normalize(routePath).replace(/^(\.\.[/\\])+/, '');
   const fullPath = path.join(PUBLIC_DIR, normalized);
-  if (!fullPath.startsWith(PUBLIC_DIR)) {
+  if (!fullPath.startsWith(`${path.resolve(PUBLIC_DIR)}${path.sep}`)) {
     return null;
   }
   return fullPath;
 };
 
 const serveStatic = async (req, res, url) => {
-  if (url.pathname === '/index.html') {
-    return redirect(res, `/${url.search || ''}`);
-  }
-  if (url.pathname === '/download.html') {
-    return redirect(res, `/download${url.search || ''}`);
+  const alias = url.pathname === '/index.html' ? '/' : url.pathname.replace(/\.html$|\/$/g, '');
+  if (alias !== url.pathname && (PUBLIC_PAGES.has(alias) || TOOL_PAGES.has(alias))) {
+    return redirect(res, `${alias}${url.search}`);
   }
 
   const filePath = resolvePublicPath(url.pathname);
@@ -363,11 +379,15 @@ const serveStatic = async (req, res, url) => {
     'cache-control': 'public, max-age=0, must-revalidate',
     'content-length': String(stat.size),
   };
-  if (url.pathname === '/download') {
+  if (TOOL_PAGES.has(url.pathname)) {
     headers['x-robots-tag'] = 'noindex, nofollow, noarchive';
+    headers['cache-control'] = 'no-store';
   }
 
-  res.writeHead(200, withSecurityHeaders(headers));
+  res.writeHead(200, withSecurityHeaders(headers, buildContentSecurityPolicy('', PUBLIC_PAGES.has(url.pathname))));
+  if (req.method === 'HEAD') {
+    return res.end();
+  }
   createReadStream(filePath).pipe(res);
 };
 
@@ -668,21 +688,20 @@ const renderDeletePage = ({ title, message, id = '', token = '', showConfirm = f
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex, nofollow, noarchive" />
     <meta name="theme-color" content="#080c0e" />
     <title>Reiven.io Delete</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/styles.css" />
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-MY4DKRSGEJ"></script>
-    <script src="/analytics.js"></script>
   </head>
   <body>
     <main class="app-shell">
       <header class="site-header">
         <a class="brand-mark" href="/">reiven.io</a>
         <nav class="site-nav" aria-label="Primary">
-          <a class="nav-link active" href="/" aria-current="page">share</a>
-          <a class="nav-link" href="/#download">download</a>
-          <a class="nav-link" href="/#cli">cli</a>
+          <a class="nav-link" href="/share">share</a>
+          <a class="nav-link" href="/receive">download</a>
+          <a class="nav-link" href="/cli">cli</a>
         </nav>
       </header>
 
@@ -704,7 +723,7 @@ const renderDeletePage = ({ title, message, id = '', token = '', showConfirm = f
       </section>
 
       <footer class="footer-note">
-        Server sees only ciphertext · AES-256-GCM · Argon2id · No accounts · Zero retention
+        Encrypted in your browser · Temporary server-memory storage · No accounts
       </footer>
     </main>
 
@@ -813,6 +832,9 @@ const cleanup = async () => {
 const routeRequest = async (req, res) => {
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
   const { pathname } = url;
+  if (pathname.startsWith('/api/') || pathname.startsWith('/delete/') || pathname === '/health' || TOOL_PAGES.has(pathname.replace(/\.html$|\/$/g, ''))) {
+    res.setHeader('x-robots-tag', 'noindex, nofollow, noarchive');
+  }
 
   if (req.method === 'GET' && pathname === '/health') {
     return json(res, 200, { ok: true, files: Object.keys(db.files).length, uploads: uploads.size });

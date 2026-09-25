@@ -1,9 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url>
-    <loc>https://reiven.io/</loc>
-    <lastmod>2026-09-13</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>1.0</priority>
-  </url>
+  <url><loc>https://reiven.io/</loc><lastmod>2026-09-25</lastmod></url>
+  <url><loc>https://reiven.io/encrypted-file-sharing</loc><lastmod>2026-09-25</lastmod></url>
+  <url><loc>https://reiven.io/encrypted-notes</loc><lastmod>2026-09-25</lastmod></url>
+  <url><loc>https://reiven.io/security</loc><lastmod>2026-09-25</lastmod></url>
+  <url><loc>https://reiven.io/privacy</loc><lastmod>2026-09-25</lastmod></url>
+  <url><loc>https://reiven.io/about</loc><lastmod>2026-09-25</lastmod></url>
+  <url><loc>https://reiven.io/cli</loc><lastmod>2026-09-25</lastmod></url>
+  <url><loc>https://reiven.io/guides</loc><lastmod>2026-09-25</lastmod></url>
+  <url><loc>https://reiven.io/guides/share-password-protected-files</loc><lastmod>2026-09-25</lastmod></url>
+  <url><loc>https://reiven.io/guides/memory-only-storage</loc><lastmod>2026-09-25</lastmod></url>
+  <url><loc>https://reiven.io/guides/encrypted-qr-sharing</loc><lastmod>2026-09-25</lastmod></url>
 </urlset>

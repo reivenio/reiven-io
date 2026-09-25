@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Encrypt a file or private note in your browser, then share a link or QR code with Reiven.io."
+    />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="theme-color" content="#080c0e" />
+    <title>Share Encrypted Files &amp; Notes — Reiven.io</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="site-header">
+        <a class="brand-mark" href="/">reiven.io</a>
+        <nav class="site-nav" aria-label="Primary">
+          <a id="tab-share" class="nav-link" href="/share">share</a>
+          <a id="tab-download" class="nav-link" href="/receive">download</a>
+          <a class="nav-link" href="/security">security</a>
+          <a class="nav-link" href="/cli">cli</a>
+        </nav>
+      </header>
+
+      <noscript><p class="spec-note">JavaScript is needed to encrypt and decrypt in your browser. You can still read <a href="/security">how Reiven works</a> or use the <a href="/cli">CLI</a>.</p></noscript>
+      <section id="panel-share" class="page-panel">
+        <h1 class="workspace-title">Share an encrypted file or note</h1>
+        <form id="upload-form" class="share-layout">
+          <section class="share-card">
+            <div class="share-main share-editor-main">
+              <div class="share-left">
+                <p class="share-title">share</p>
+
+                <div class="field-block">
+                  <label class="field-label" for="content-type-input">content type</label>
+                  <div class="type-toggle" role="group" aria-label="Share type">
+                    <button id="content-type-file-btn" class="type-toggle-btn active" type="button" aria-pressed="true">file</button>
+                    <button id="content-type-note-btn" class="type-toggle-btn" type="button" aria-pressed="false">note</button>
+                  </div>
+                  <input id="content-type-input" type="hidden" value="file" />
+                </div>
+
+                <div class="field-block">
+                  <label class="field-label" for="password-input">encryption key</label>
+                  <div class="input-shell">
+                    <input type="password" id="password-input" minlength="6" required />
+                    <button type="button" id="password-toggle-btn" class="input-icon-btn" aria-label="Show encryption key" aria-pressed="false">
+                      <svg class="input-icon" viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M2.5 12c2.2-3.6 5.3-5.4 9.5-5.4s7.3 1.8 9.5 5.4c-2.2 3.6-5.3 5.4-9.5 5.4S4.7 15.6 2.5 12Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                        <circle cx="12" cy="12" r="3.1" fill="none" stroke="currentColor" stroke-width="1.6"/>
+                      </svg>
+                    </button>
+                  </div>
+                  <small id="password-note" class="field-note">Min 32 chars.</small>
+                </div>
+
+                <label class="field-block">
+                  <span class="field-label">encryption profile</span>
+                  <div class="select-shell">
+                    <select id="encryption-type-input">
+                      <option value="standard" selected>Standard</option>
+                      <option value="paranoid">Paranoid</option>
+                    </select>
+                    <svg class="input-icon" viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M7 10.5 12 15l5-4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                  </div>
+                  <small class="field-note">Paranoid increases Argon2 work factor and can be much slower on weak devices.</small>
+                </label>
+
+                <label class="toggle-row">
+                  <input type="checkbox" id="allow-receiver-delete-input" checked />
+                  <span class="toggle-copy">
+                    <strong>Allow receiver to delete</strong>
+                    <small>If enabled, receiver sees a Delete File button on the download page.</small>
+                  </span>
+                </label>
+
+                <label class="toggle-row">
+                  <input type="checkbox" id="qr-mode-input" />
+                  <span class="toggle-copy">
+                    <strong>QR Mode</strong>
+                    <small>Generate a random in-browser key and QR auto-download link.</small>
+                  </span>
+                </label>
+              </div>
+
+              <div class="share-right">
+                <label id="file-input-wrap" class="field-block upload-block">
+                  <span class="field-label">PAYLOAD</span>
+                  <div class="upload-drop">
+                    <input type="file" id="file-input" />
+                    <div class="upload-drop-inner">
+                      <svg class="upload-icon" viewBox="0 0 64 64" aria-hidden="true">
+                        <rect x="10" y="18" width="44" height="32" rx="6" fill="none" stroke="currentColor" stroke-width="2.5"/>
+                        <path d="M32 42V22m0 0-8 8m8-8 8 8" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
+                      <span id="file-drop-text">Select or drop a file to upload</span>
+                    </div>
+                  </div>
+                </label>
+                <label id="note-input-wrap" class="field-block note-block">
+                  <span id="note-input-label" class="field-label">PAYLOAD</span>
+                  <textarea id="note-input" rows="12"></textarea>
+                </label>
+                <div id="status" class="share-inline-note hidden">Loading stuff here</div>
+              </div>
+
+              <button type="submit" id="upload-btn" class="cta-btn share-cta" disabled>Encrypt &amp; Upload</button>
+            </div>
+          </section>
+
+          <section class="security-strip">
+            <div class="security-strip-head">
+              <strong id="security-profile-label">Security profile: Standard</strong>
+              <span id="benchmark-status">Preparing in-browser encryption...</span>
+            </div>
+            <p id="security-estimate">Estimated key setup time on this device: calculating...</p>
+            <p id="security-details">Encryption details are loading...</p>
+            <p id="bruteforce-estimate">Password strength estimate appears after you type a password.</p>
+          </section>
+        </form>
+
+        <section id="links" class="share-layout hidden">
+          <section class="share-card upload-complete-summary">
+            <div class="upload-complete-summary-body">
+              <p class="share-title">upload complete.</p>
+              <p id="upload-complete-expiry" class="upload-complete-expiry">Expires at --</p>
+            </div>
+          </section>
+
+          <section class="share-card upload-complete-details">
+            <div class="share-main complete-main">
+              <div class="share-right complete-links">
+                <div class="complete-block">
+                  <p class="share-title">share details</p>
+
+                  <div class="complete-notes">
+                    <div class="result-note">
+                      <div class="result-copy">
+                        <p class="field-label">code</p>
+                        <p id="access-code" class="result-value"></p>
+                      </div>
+                      <button id="copy-code-btn" type="button" class="cta-btn mini-cta-btn">Copy</button>
+                    </div>
+
+                    <div class="result-note">
+                      <div class="result-copy">
+                        <p class="field-label">download</p>
+                        <a id="download-link" class="result-value result-link" href="#"></a>
+                      </div>
+                      <button id="copy-download-btn" type="button" class="cta-btn mini-cta-btn">Copy</button>
+                    </div>
+
+                    <div id="qr-row" class="result-note qr-result hidden">
+                      <div class="result-copy">
+                        <p class="field-label">QR Mode</p>
+                        <div id="qr-code" class="qr-code" aria-label="QR auto-download link"></div>
+                        <a id="qr-link" class="result-value result-link" href="#"></a>
+                        <small class="field-note">The QR link contains the decryption key in the browser-only URL fragment. Treat it like the secret.</small>
+                      </div>
+                      <button id="copy-qr-btn" type="button" class="cta-btn mini-cta-btn">Copy</button>
+                    </div>
+
+                    <div id="delete-row" class="result-note">
+                      <div class="result-copy">
+                        <p class="field-label">delete</p>
+                        <a id="delete-link" class="result-value result-link" href="#"></a>
+                      </div>
+                      <button id="copy-delete-btn" type="button" class="cta-btn mini-cta-btn">Copy</button>
+                    </div>
+                  </div>
+
+                  <p id="complete-note" class="field-note complete-note">Share the download URL/code and password separately.</p>
+                </div>
+              </div>
+            </div>
+          </section>
+        </section>
+      </section>
+
+      <section id="panel-download" class="page-panel download-shell hidden">
+        <h1 class="workspace-title">Open an encrypted share</h1>
+        <section class="utility-card download-card">
+          <form id="code-download-form" class="download-form">
+            <p class="share-title">download</p>
+
+            <div class="field-block download-code-block">
+              <label class="field-label download-field-label" for="code-input">file code</label>
+              <input id="code-input" class="download-code-input download-code-entry" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="11" aria-describedby="code-help" required />
+              <small id="code-help" class="field-note download-field-note">Enter or paste the 8-digit code (dashes optional)</small>
+            </div>
+
+            <button type="submit" class="cta-btn download-open-btn">Open</button>
+          </form>
+        </section>
+        <section id="code-status" class="utility-card download-secondary-card hidden"></section>
+      </section>
+
+      <footer class="footer-note">
+        <p>Encrypted in your browser · Temporary server-memory storage · No accounts</p>
+        <nav class="footer-links" aria-label="Project"><a href="/encrypted-file-sharing">File sharing</a><a href="/encrypted-notes">Private notes</a><a href="/security">Security</a><a href="/privacy">Privacy</a><a href="/about">About</a><a href="/cli">CLI</a></nav>
+      </footer>
+    </main>
+
+    <script src="/upload.js" defer></script>
+  </body>
+</html>
