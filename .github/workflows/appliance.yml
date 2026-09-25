@@ -36,7 +36,7 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-      - run: sudo apt-get update && sudo apt-get install --yes shellcheck
+      - run: sudo apt-get update && sudo apt-get install --yes ripgrep shellcheck
       - run: npm ci
       - run: npm run appliance:validate
       - run: npm audit --omit=dev
