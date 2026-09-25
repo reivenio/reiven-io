@@ -112,6 +112,7 @@ lb config \
   --distribution "$UBUNTU_CODENAME" \
   --archive-areas "main universe" \
   --binary-images iso-hybrid \
+  --bootloaders "grub-pc grub-efi" \
   --chroot-filesystem squashfs \
   --initramfs casper \
   --linux-flavours generic \

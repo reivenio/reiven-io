@@ -64,7 +64,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: Install image builder
-        run: sudo apt-get update && sudo apt-get install --yes live-build ripgrep rsync xorriso squashfs-tools syslinux-utils
+        run: sudo apt-get update && sudo apt-get install --yes dosfstools grub-efi-amd64-bin grub-pc-bin live-build mtools ripgrep rsync squashfs-tools xorriso
       - name: Prepare administrator public keys
         env:
           REIVEN_ADMIN_AUTHORIZED_KEYS: ${{ secrets.REIVEN_ADMIN_AUTHORIZED_KEYS }}
