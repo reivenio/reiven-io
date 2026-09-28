@@ -4,21 +4,21 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Encrypted File Sharing Without an Account — Reiven.io</title>
-    <meta name="description" content="Send password-protected files with Reiven.io. Browser encryption, temporary RAM storage, access codes, and optional QR sharing. No account required." />
+    <meta name="description" content="Send password-protected files with Reiven.io. Browser encryption, temporary RAM storage, access codes, generated passwords, and QR sharing. No account required." />
     <meta name="robots" content="index, follow" />
     <link rel="canonical" href="https://reiven.io/encrypted-file-sharing" />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Reiven.io" />
     <meta property="og:url" content="https://reiven.io/encrypted-file-sharing" />
     <meta property="og:title" content="Encrypted File Sharing Without an Account — Reiven.io" />
-    <meta property="og:description" content="Send password-protected files with Reiven.io. Browser encryption, temporary RAM storage, access codes, and optional QR sharing. No account required." />
+    <meta property="og:description" content="Send password-protected files with Reiven.io. Browser encryption, temporary RAM storage, access codes, generated passwords, and QR sharing. No account required." />
     <meta property="og:image" content="https://reiven.io/social-preview.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content="Reiven.io — encrypted file and note sharing" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="Encrypted File Sharing Without an Account — Reiven.io" />
-    <meta name="twitter:description" content="Send password-protected files with Reiven.io. Browser encryption, temporary RAM storage, access codes, and optional QR sharing. No account required." />
+    <meta name="twitter:description" content="Send password-protected files with Reiven.io. Browser encryption, temporary RAM storage, access codes, generated passwords, and QR sharing. No account required." />
     <meta name="twitter:image" content="https://reiven.io/social-preview.png" />
     <meta name="theme-color" content="#080c0e" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
@@ -33,8 +33,8 @@
         <a class="back-link" href="/">← Reiven.io</a>
         <header class="content-intro"><h1>Encrypted file sharing without an account</h1><p class="lead">Send a document or file through a link while keeping payload encryption on your device. Reiven receives the encrypted bytes; the recipient decrypts them in their browser.</p></header>
         <div class="page-actions"><a class="cta-btn" href="/share">Share a file</a><a class="text-link" href="/receive">Open a received share</a></div>
-      <section class="content-section"><h2>Send a password-protected file</h2><ol class="steps"><li>Open the sharing workspace and select or drop a file.</li><li>Choose a strong password. The Standard profile is the default; Paranoid increases password-processing cost and can be slower on small devices.</li><li>Select Encrypt &amp; Upload. Wait for the upload-complete screen before closing the tab.</li><li>Send the download link or 8-digit access code. Send the password through a separate channel where practical.</li></ol><p>The recipient enters the password in their browser. Reiven does not recover forgotten passwords, so retain the original until the recipient has received it.</p></section>
-      <section class="content-section"><h2>Links, access codes, and QR Mode</h2><p>A download link opens the share directly. An access code can be entered on the <a href="/receive">receive page</a>; it identifies the share and is not the decryption password.</p><p>For convenient device-to-device sharing, QR Mode generates a random 256-bit key and includes it in a QR link. Scanning that link starts browser decryption and download. Anyone with the complete link can decrypt it. <a href="/guides/encrypted-qr-sharing">Learn how QR sharing works</a>.</p></section>
+      <section class="content-section"><h2>Send a password-protected file</h2><ol class="steps"><li>Open the sharing workspace and select or drop a file.</li><li>Enter a strong password, or leave the field blank to generate a random 15-character uppercase-letter-and-digit password in your browser.</li><li>Select Encrypt &amp; Upload. Wait for the upload-complete screen before closing the tab.</li><li>Share the resulting file code and password separately, or share the complete QR link.</li></ol><p>Reiven cannot recover passwords, so retain the displayed password until the recipient has received the file.</p></section>
+      <section class="content-section"><h2>Links, access codes, and QR sharing</h2><p>A download link opens the share directly. An access code can be entered on the <a href="/receive">receive page</a>; it identifies the share and is not the decryption password.</p><p>Every browser upload also provides a QR link containing the password in its URL fragment. Scanning that link starts browser decryption and download. Anyone with the complete link can decrypt it. <a href="/guides/encrypted-qr-sharing">Learn how QR sharing works</a>.</p></section>
       <section class="content-section"><h2>Size, expiry, and deletion</h2><p>The hosted encrypted-upload limit is 512 MiB including encryption overhead. Use an original file below this limit. Upload capacity also depends on free server memory; large downloads need enough memory on the recipient's device.</p><p>Shares expire 24 hours after upload initialization. The sender receives a deletion link. Receiver deletion is enabled by default and can be switched off before upload. Downloading does not itself delete a file.</p><p>Encrypted uploads live in server memory and can disappear earlier after a restart or crash. This is temporary transfer, not long-term storage. <a href="/guides/memory-only-storage">Understand memory-only storage</a>.</p></section>
       <section class="content-section"><h2>What encryption covers</h2><p>The file's contents are encrypted before upload using AES-256-GCM. The bundled clients encrypt original filenames and send the placeholder encrypted.bin. Other operational metadata remains visible to the service; custom clients may expose their chosen upload name. Use the <a href="/security">security page</a> for the full model, or follow our <a href="/guides/share-password-protected-files">step-by-step sharing guide</a>.</p><p>Only sharing a short message? <a href="/encrypted-notes">Create an encrypted note instead</a>.</p></section>
       </main>

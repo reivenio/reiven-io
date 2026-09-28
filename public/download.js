@@ -7,6 +7,9 @@ const statusEl = document.getElementById('status');
 const statusMessageEl = document.getElementById('status-message');
 const fileMetaEl = document.getElementById('file-meta');
 const downloadForm = document.getElementById('download-form');
+const downloadTitleEl = document.getElementById('download-title');
+const downloadStatusTitleEl = document.getElementById('download-status-title');
+const downloadPasswordBlockEl = document.getElementById('download-password-block');
 const downloadBtn = document.getElementById('download-btn');
 const receiverDeleteBtn = document.getElementById('receiver-delete-btn');
 const slowWarningEl = document.getElementById('slow-warning');
@@ -199,6 +202,14 @@ const startStatusDots = (baseMessage) => {
 
 const formatMb = (bytes) => `${Math.round(bytes / (1024 * 1024))}`;
 
+const formatFileSize = (bytes) => {
+  const value = Number(bytes || 0);
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(value / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+};
+
 const parseApiResponse = async (response) => {
   const contentType = response.headers.get('content-type') || '';
   if (contentType.includes('application/json')) {
@@ -258,6 +269,23 @@ const scrubAutoDownloadHash = () => {
   window.history.replaceState(null, document.title, `${window.location.pathname}${window.location.search}`);
 };
 
+const setAutoDownloadMode = (enabled) => {
+  downloadForm.classList.toggle('auto-download-mode', enabled);
+  downloadTitleEl?.classList.toggle('hidden', enabled);
+  downloadStatusTitleEl?.classList.toggle('hidden', enabled);
+  downloadPasswordBlockEl?.classList.toggle('hidden', enabled);
+  downloadBtn.classList.toggle('hidden', enabled);
+};
+
+const renderFileMeta = (payload, originalName = '') => {
+  if (!payload) {
+    return;
+  }
+  const identity = originalName ? `File: ${originalName}` : `File ID: ${payload.id}`;
+  const expiry = new Date(payload.expiresAt).toLocaleString();
+  fileMetaEl.textContent = `${identity} · Encrypted size: ${formatFileSize(payload.size)} · Expires: ${expiry}`;
+};
+
 const loadInfo = async (id) => {
   try {
     const response = await fetch(`/api/file/${encodeURIComponent(id)}/info`);
@@ -268,7 +296,7 @@ const loadInfo = async (id) => {
     }
 
     fileMeta = payload;
-    fileMetaEl.textContent = `File ID: ${payload.id} | Size: ${payload.size} bytes | Expires: ${new Date(payload.expiresAt).toLocaleString()}`;
+    renderFileMeta(payload);
     if (receiverDeleteBtn) {
       const allowReceiverDelete = payload && payload.allowReceiverDelete === true && typeof payload.deleteUrl === 'string' && payload.deleteUrl;
       receiverDeleteBtn.classList.toggle('hidden', !allowReceiverDelete);
@@ -304,11 +332,11 @@ if (passwordToggleBtn && passwordInputEl) {
   });
 }
 
-const downloadDecryptedFile = async (id, password, pim) => {
+const downloadDecryptedFile = async (id, password, pim, { auto = false } = {}) => {
   await workerReady;
   const cfg = getEncryptionConfig();
 
-  showStepStatus('Checking password against encrypted header');
+  showStepStatus(auto ? 'Download in progress' : 'Checking password against encrypted header');
   const headerResponse = await fetch(`/api/file/${encodeURIComponent(id)}/download`, {
     headers: {
       range: `bytes=0-${cfg.headerProbeBytes - 1}`,
@@ -332,13 +360,16 @@ const downloadDecryptedFile = async (id, password, pim) => {
     {
       timeoutMs: VERIFY_TIMEOUT_MS,
       onProgress: () => {
-        startStatusDots(`Validating password with Argon2id (time=${headerInfo.argonParams.time}, mem=${Math.round(headerInfo.argonParams.mem / 1024)}MB)`);
+        startStatusDots(auto
+          ? 'Download in progress'
+          : `Validating password with Argon2id (time=${headerInfo.argonParams.time}, mem=${Math.round(headerInfo.argonParams.mem / 1024)}MB)`);
       },
     }
   ));
 
-  showStepStatus('Password accepted. Preparing download');
+  showStepStatus(auto ? 'Download in progress' : 'Password accepted. Preparing download');
   const filename = verified && verified.originalName ? verified.originalName : `decrypted-${id}`;
+  renderFileMeta(fileMeta, filename);
   const isNote = Boolean(fileMeta && fileMeta.isNote);
   const plaintextChunks = [];
 
@@ -358,7 +389,7 @@ const downloadDecryptedFile = async (id, password, pim) => {
       received += value.byteLength;
       if (received > expectedBytes) throw new Error('Encrypted file contains unexpected trailing data.');
       pending = concatUint8Arrays(pending, value);
-      showStatus(`Downloading encrypted file ${formatMb(received)}/${formatMb(expectedBytes)} MB`);
+      showStatus(auto ? 'Download in progress...' : `Downloading encrypted file ${formatMb(received)}/${formatMb(expectedBytes)} MB`);
       while (chunkIndex < verified.chunkCount) {
         const size = Math.min(verified.chunkPlainSize, verified.plainSize - chunkIndex * verified.chunkPlainSize) + 16;
         if (pending.length < size) break;
@@ -414,7 +445,7 @@ const downloadDecryptedFile = async (id, password, pim) => {
   a.href = url;
   a.download = filename;
   document.body.appendChild(a);
-  showStatus('File ready. Starting browser download...');
+  showStatus(auto ? 'Download in progress...' : 'File ready. Starting browser download...');
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
@@ -435,10 +466,13 @@ const startDecryptedDownload = async (password, { auto = false } = {}) => {
     const cfg = getEncryptionConfig();
     const pim = cfg.defaultPim;
     downloadBtn.disabled = true;
-    showStepStatus(auto ? 'QR Mode key detected. Starting download...' : `Downloading encrypted file (fixed profile PIM=${cfg.defaultPim})`);
-    await downloadDecryptedFile(fileId, password, pim);
-    showStatus(Boolean(fileMeta && fileMeta.isNote) ? 'Note ready.' : 'Decrypted download started.');
+    showStepStatus(auto ? 'Download in progress' : `Downloading encrypted file (fixed profile PIM=${cfg.defaultPim})`);
+    await downloadDecryptedFile(fileId, password, pim, { auto });
+    showStatus(Boolean(fileMeta && fileMeta.isNote) ? 'Note ready.' : (auto ? 'Download started.' : 'Decrypted download started.'));
   } catch (error) {
+    if (auto) {
+      setAutoDownloadMode(false);
+    }
     showStatus(error.message || 'Download failed', true);
     console.error('[download flow]', error);
   } finally {
@@ -449,6 +483,7 @@ const startDecryptedDownload = async (password, { auto = false } = {}) => {
 
 const initializeDownload = async () => {
   const autoPassword = getAutoDownloadPassword();
+  setAutoDownloadMode(Boolean(autoPassword));
   scrubAutoDownloadHash();
   try {
     encryptionConfig = await loadEncryptionConfig();
@@ -468,10 +503,8 @@ const initializeDownload = async () => {
   if (loaded && autoPassword && !autoDownloadStarted) {
     autoDownloadStarted = true;
     passwordInputEl.value = '';
-    passwordInputEl.placeholder = 'QR Mode key detected';
     scrubAutoDownloadHash();
     await startDecryptedDownload(autoPassword, { auto: true });
-    passwordInputEl.placeholder = '';
   }
 };
 

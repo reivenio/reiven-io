@@ -50,6 +50,6 @@ Environment variable:
 
 ## Security And Compatibility
 
-Use Node.js 24 LTS and install locked dependencies with `npm ci`. Keep the full repository layout when installing the CLI. New uploads require at least 32 password characters; use generated secrets. PIM is an input parameter, not an iteration multiplier. Browser PIM is fixed at 100.
+Use Node.js 24 LTS and install locked dependencies with `npm ci`. Keep the full repository layout when installing the CLI. The CLI accepts any non-empty password, but weak or reused passwords remain vulnerable to offline guessing; use a password manager to create a strong secret. PIM is an input parameter, not an iteration multiplier. Browser PIM is fixed at 100.
 
 Only v6 envelopes are accepted. Legacy v4/v5 ciphertext must be re-created from originals; there is no automatic downgrade. Recipients validate authenticated total length and every chunk before saving. Output creation is exclusive, with mode 0600 (subject to platform support), rather than overwriting an existing file. See the root `CRYPTO-FORMAT.md` for the protocol and its limitations.

@@ -46,7 +46,7 @@
                 <div class="field-block">
                   <label class="field-label" for="password-input">encryption key</label>
                   <div class="input-shell">
-                    <input type="password" id="password-input" minlength="32" maxlength="4096" required />
+                    <input type="password" id="password-input" maxlength="4096" autocomplete="new-password" />
                     <button type="button" id="password-toggle-btn" class="input-icon-btn" aria-label="Show encryption key" aria-pressed="false">
                       <svg class="input-icon" viewBox="0 0 24 24" aria-hidden="true">
                         <path d="M2.5 12c2.2-3.6 5.3-5.4 9.5-5.4s7.3 1.8 9.5 5.4c-2.2 3.6-5.3 5.4-9.5 5.4S4.7 15.6 2.5 12Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
@@ -54,7 +54,7 @@
                       </svg>
                     </button>
                   </div>
-                  <small id="password-note" class="field-note">Min 32 chars.</small>
+                  <small id="password-note" class="field-note">Optional. Leave blank to generate a 15-character password in this browser.</small>
                 </div>
 
                 <label class="field-block">
@@ -79,13 +79,6 @@
                   </span>
                 </label>
 
-                <label class="toggle-row">
-                  <input type="checkbox" id="qr-mode-input" />
-                  <span class="toggle-copy">
-                    <strong>QR Mode</strong>
-                    <small>Generate a random in-browser key and QR auto-download link.</small>
-                  </span>
-                </label>
               </div>
 
               <div class="share-right">
@@ -120,7 +113,7 @@
             </div>
             <p id="security-estimate">Estimated key setup time on this device: calculating...</p>
             <p id="security-details">Encryption details are loading...</p>
-            <p id="bruteforce-estimate">Password strength estimate appears after you type a password.</p>
+            <p id="bruteforce-estimate">Leave the password blank to generate a random 15-character key, or enter your own strong password.</p>
           </section>
         </form>
 
@@ -141,10 +134,18 @@
                   <div class="complete-notes">
                     <div class="result-note">
                       <div class="result-copy">
-                        <p class="field-label">code</p>
+                        <p class="field-label">file code</p>
                         <p id="access-code" class="result-value"></p>
                       </div>
                       <button id="copy-code-btn" type="button" class="cta-btn mini-cta-btn">Copy</button>
+                    </div>
+
+                    <div class="result-note">
+                      <div class="result-copy">
+                        <p id="result-password-label" class="field-label">password</p>
+                        <p id="result-password" class="result-value"></p>
+                      </div>
+                      <button id="copy-password-btn" type="button" class="cta-btn mini-cta-btn">Copy</button>
                     </div>
 
                     <div class="result-note">
@@ -157,7 +158,7 @@
 
                     <div id="qr-row" class="result-note qr-result hidden">
                       <div class="result-copy">
-                        <p class="field-label">QR Mode</p>
+                        <p class="field-label">QR</p>
                         <div id="qr-code" class="qr-code" aria-label="QR auto-download link"></div>
                         <a id="qr-link" class="result-value result-link" href="#"></a>
                         <small class="field-note">The QR link contains the decryption key in the browser-only URL fragment. Treat it like the secret.</small>
@@ -174,7 +175,7 @@
                     </div>
                   </div>
 
-                  <p id="complete-note" class="field-note complete-note">Share the download URL/code and password separately.</p>
+                  <p id="complete-note" class="field-note complete-note">Share the code and password separately, or use the QR link as the complete secret.</p>
                 </div>
               </div>
             </div>

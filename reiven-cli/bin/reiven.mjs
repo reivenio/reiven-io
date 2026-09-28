@@ -530,7 +530,6 @@ const runPut = async ({ target, base, pim, debug = false }) => {
 
   debugLog(`File: ${filePath} (${info.size} bytes)`);
   const password = await askPassword('Password: ');
-  if (password.length < 32) throw new Error('Use at least 32 characters from a password manager.');
   const confirmPassword = await askPassword('Confirm password: ');
   if (password !== confirmPassword) {
     throw new Error('Passwords do not match.');

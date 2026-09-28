@@ -11,14 +11,15 @@ Reiven is a browser-first encrypted sharing service. Payloads are encrypted befo
 - Generates 8-digit access codes such as `12-34-56-78`.
 - Provides download links and optional receiver-side delete links.
 - Expires uploaded ciphertext automatically based on server TTL.
-- Supports QR Mode with a random browser-generated key embedded in the URL fragment.
+- Generates a QR link for every browser upload, with its password embedded in the URL fragment for local auto-download.
+- Generates a random 15-character uppercase-letter-and-digit password in the browser when the password field is left blank.
 - Serves static public information pages while excluding sharing tools and private/API routes from indexing.
 
 ## Security Model
 
 Reiven protects payload contents client-side. The server should be treated as untrusted, ephemeral transport memory.
 
-- Passwords and QR Mode random keys are generated or entered client-side and are not submitted to the server.
+- Passwords are generated or entered client-side and are not submitted to the server.
 - File and note payloads are encrypted client-side before upload.
 - Payload encryption uses AES-256-GCM with random 256-bit data encryption keys.
 - Version 6 uses Argon2id, deterministic ML-KEM-768, HKDF-SHA-256 and AES-256-GCM key wrapping. Header parameters, metadata, record roles, total length and chunk positions are authenticated. See `CRYPTO-FORMAT.md` for the wire specification. Legacy v4/v5 files are rejected; re-encrypt originals with updated clients.
@@ -32,7 +33,7 @@ Reiven protects payload contents client-side. The server should be treated as un
 
 For a strict memory-only deployment, disable swap and crash collection on the host. `LimitCORE=0` alone is insufficient when Linux pipes dumps to Apport or another collector. The app does not intentionally write ciphertext or metadata to disk, but operating systems can otherwise page memory or persist process dumps outside the app’s control.
 
-QR Mode creates a random key in the browser and appends it to the download URL fragment. URL fragments are not sent in normal HTTP requests, but the full QR/link is the secret and can be exposed through browser history, screenshots, chat previews, or recipient devices.
+Every browser upload produces a QR link that appends the password to the download URL fragment. Leaving the password field blank generates 15 random symbols from `0-9` and `A-Z`, displayed in `5-5-5` groups such as `A2761-X273H-GTD27`. The random portion has about 77.5 bits of entropy. URL fragments are not sent in normal HTTP requests, but the full QR/link is the secret and can be exposed through browser history, screenshots, chat previews, or recipient devices.
 
 ## Architecture
 
@@ -480,7 +481,7 @@ curl -fsSL http://127.0.0.1:8080/health
 - Run `npm audit --omit=dev`.
 - Rebuild `public/vendor/` if dependency versions changed.
 - Run `npm run build:pages` after content/template changes and commit generated outputs.
-- Verify upload, download, access-code download, receiver delete, and QR Mode in a browser.
+- Verify upload, manual download, access-code download, receiver delete, generated passwords, and QR auto-download in a browser.
 - Verify all sitemap URLs, internal links, canonicals, permanent redirects, `www` HTTPS, and private/API `noindex` headers.
 - Check that public pages display immediately and private tools load no analytics.
 - Push `main`.
@@ -499,7 +500,7 @@ curl -fsSL http://127.0.0.1:8080/health
 
 ## Security Hardening And v6 Rollout
 
-- New envelopes use the single implementation in `public/envelope.mjs`; see `CRYPTO-FORMAT.md`. Both clients require 32-character minimum passwords for new uploads; prefer generated secrets or QR Mode. Crack-time guesses are no longer shown. PIM is a password-input parameter, not a KDF cost multiplier.
+- New envelopes use the single implementation in `public/envelope.mjs`; see `CRYPTO-FORMAT.md`. The browser generates a 15-character uppercase-letter-and-digit password when its password field is blank. Browser and CLI uploads no longer impose a minimum length on custom passwords, so the UI and documentation warn that weak inputs remain vulnerable to offline guessing. PIM is a password-input parameter, not a KDF cost multiplier.
 - Receiver deletion remains enabled by default in the browser. Anyone with the link/code can obtain its delete capability without the password; this is stated in the UI.
 - Upload admission: one active upload and 64 stored files per client network, at most min(per-file limit, one quarter of global storage) stored/reserved bytes per client, 32 sessions/1024 total records globally, and half of the global pool reserved for active uploads at most. Init limits are 10/minute per client and 120/minute globally. These are abuse mitigations, not DDoS immunity; shared NATs share quotas.
 - Part readers are serialized per upload, bounded globally at eight, capped at 50 MiB per part and 120 seconds. Completion validates unique ordered parts, exact counts/sizes and the v6 envelope layout. The server does not possess keys to authenticate payloads.

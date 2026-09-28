@@ -8,6 +8,7 @@ const linksEl = document.getElementById('links');
 const accessCodeEl = document.getElementById('access-code');
 const uploadCompleteExpiryEl = document.getElementById('upload-complete-expiry');
 const copyCodeBtn = document.getElementById('copy-code-btn');
+const copyPasswordBtn = document.getElementById('copy-password-btn');
 const copyDownloadBtn = document.getElementById('copy-download-btn');
 const copyDeleteBtn = document.getElementById('copy-delete-btn');
 const deleteRowEl = document.getElementById('delete-row');
@@ -19,10 +20,8 @@ const bruteForceEstimateEl = document.getElementById('bruteforce-estimate');
 const securityProfileLabelEl = document.getElementById('security-profile-label');
 const passwordInputEl = document.getElementById('password-input');
 const passwordToggleBtnEl = document.getElementById('password-toggle-btn');
-const passwordNoteEl = document.getElementById('password-note');
 const encryptionTypeInputEl = document.getElementById('encryption-type-input');
 const allowReceiverDeleteInputEl = document.getElementById('allow-receiver-delete-input');
-const qrModeInputEl = document.getElementById('qr-mode-input');
 const contentTypeInputEl = document.getElementById('content-type-input');
 const fileInputWrapEl = document.getElementById('file-input-wrap');
 const fileInputEl = document.getElementById('file-input');
@@ -45,12 +44,16 @@ const qrCodeEl = document.getElementById('qr-code');
 const qrLinkEl = document.getElementById('qr-link');
 const copyQrBtn = document.getElementById('copy-qr-btn');
 const completeNoteEl = document.getElementById('complete-note');
+const resultPasswordEl = document.getElementById('result-password');
+const resultPasswordLabelEl = document.getElementById('result-password-label');
 const ENCRYPTION_TYPE_STANDARD = 'standard';
 const ENCRYPTION_TYPE_PARANOID = 'paranoid';
 const CONTENT_TYPE_FILE = 'file';
 const CONTENT_TYPE_NOTE = 'note';
 const encoder = new TextEncoder();
 const MAX_NOTE_BYTES = 10 * 1024 * 1024;
+const GENERATED_PASSWORD_ALPHABET = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+const GENERATED_PASSWORD_LENGTH = 15;
 
 let worker = null;
 let workerStartupTimeout = null;
@@ -290,22 +293,34 @@ const syncFileInput = (file) => {
   }
 };
 
-const base64UrlEncode = (bytes) => {
-  let binary = '';
-  for (const value of bytes) {
-    binary += String.fromCharCode(value);
-  }
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
-};
-
 const generateRandomPassword = () => {
   const cryptoApi = window.crypto || window.msCrypto;
   if (!cryptoApi || typeof cryptoApi.getRandomValues !== 'function') {
     throw new Error('Secure random generation is unavailable in this browser.');
   }
-  const bytes = new Uint8Array(32);
-  cryptoApi.getRandomValues(bytes);
-  return base64UrlEncode(bytes);
+  const unbiasedLimit = Math.floor(256 / GENERATED_PASSWORD_ALPHABET.length) * GENERATED_PASSWORD_ALPHABET.length;
+
+  while (true) {
+    const characters = [];
+    while (characters.length < GENERATED_PASSWORD_LENGTH) {
+      const bytes = new Uint8Array(32);
+      cryptoApi.getRandomValues(bytes);
+      for (const value of bytes) {
+        if (value >= unbiasedLimit) {
+          continue;
+        }
+        characters.push(GENERATED_PASSWORD_ALPHABET[value % GENERATED_PASSWORD_ALPHABET.length]);
+        if (characters.length === GENERATED_PASSWORD_LENGTH) {
+          break;
+        }
+      }
+    }
+
+    const password = characters.join('');
+    if (/[0-9]/.test(password) && /[A-Z]/.test(password)) {
+      return password.match(/.{1,5}/g).join('-');
+    }
+  }
 };
 
 const buildQrDownloadUrl = (downloadUrl, password) => {
@@ -315,30 +330,6 @@ const buildQrDownloadUrl = (downloadUrl, password) => {
   params.set('auto', '1');
   url.hash = params.toString();
   return url.toString();
-};
-
-const setQrModeState = () => {
-  const enabled = Boolean(qrModeInputEl && qrModeInputEl.checked);
-  if (passwordInputEl) {
-    passwordInputEl.disabled = enabled;
-    passwordInputEl.required = !enabled;
-    passwordInputEl.placeholder = enabled ? 'generated in browser for QR Mode' : '';
-    if (enabled) {
-      passwordInputEl.value = '';
-      passwordInputEl.type = 'password';
-      updateBruteForceEstimate();
-    }
-  }
-  if (passwordToggleBtnEl) {
-    passwordToggleBtnEl.disabled = enabled;
-    passwordToggleBtnEl.setAttribute('aria-pressed', 'false');
-    passwordToggleBtnEl.setAttribute('aria-label', 'Show encryption key');
-  }
-  if (passwordNoteEl) {
-    passwordNoteEl.textContent = enabled
-      ? 'QR Mode generates a random 256-bit key in this browser.'
-      : 'Min 32 chars.';
-  }
 };
 
 const clearQrResult = () => {
@@ -795,16 +786,17 @@ const formatMs = (ms) => {
 };
 
 const updateBruteForceEstimate = () => {
-  if (qrModeInputEl && qrModeInputEl.checked) {
-    bruteForceEstimateEl.textContent = 'QR Mode uses a random 256-bit key generated in this browser. The QR link itself becomes the secret.';
-    return;
-  }
   if (!encryptionConfig) {
     bruteForceEstimateEl.textContent = 'Password strength estimate: loading encryption profile...';
     return;
   }
 
-  bruteForceEstimateEl.textContent = 'Use a password manager to generate at least 32 random characters, or use QR Mode. Length alone does not prove strength; predictable passwords remain vulnerable to offline guessing. We do not estimate crack times.';
+  if (!passwordInputEl || passwordInputEl.value.length === 0) {
+    bruteForceEstimateEl.textContent = 'A random 15-character password using numbers and uppercase letters will be generated in this browser. It provides about 77.5 bits of password entropy.';
+    return;
+  }
+
+  bruteForceEstimateEl.textContent = 'Custom passwords have no minimum length, but predictable or reused passwords remain vulnerable to offline guessing. Use a password manager for strong custom passwords.';
 };
 
 const updateSecurityEstimate = () => {
@@ -928,12 +920,6 @@ if (passwordToggleBtnEl && passwordInputEl) {
     passwordInputEl.focus();
   });
 }
-if (qrModeInputEl) {
-  qrModeInputEl.addEventListener('change', () => {
-    setQrModeState();
-    updateBruteForceEstimate();
-  });
-}
 if (encryptionTypeInputEl) {
   encryptionTypeInputEl.addEventListener('change', updateSecurityEstimate);
 }
@@ -1004,7 +990,6 @@ uploadForm.addEventListener('submit', async (event) => {
 
   const passwordInput = document.getElementById('password-input');
   const file = selectedFile || (fileInputEl ? fileInputEl.files?.[0] : null);
-  const qrMode = Boolean(qrModeInputEl && qrModeInputEl.checked);
 
   const contentType = contentTypeInputEl && contentTypeInputEl.value === CONTENT_TYPE_NOTE
     ? CONTENT_TYPE_NOTE
@@ -1032,16 +1017,14 @@ uploadForm.addEventListener('submit', async (event) => {
     originalName = file.name;
   }
 
-  let password = '';
+  let password = String(passwordInput ? passwordInput.value : '');
+  const passwordWasGenerated = password.length === 0;
   try {
-    password = qrMode ? generateRandomPassword() : String(passwordInput ? passwordInput.value : '');
+    if (passwordWasGenerated) {
+      password = generateRandomPassword();
+    }
   } catch (error) {
-    showStatus(error.message || 'Could not generate QR Mode key', true);
-    return;
-  }
-
-  if (password.length < 32) {
-    showStatus('Use at least 32 characters from a password manager, or QR Mode.', true);
+    showStatus(error.message || 'Could not generate a secure password', true);
     return;
   }
 
@@ -1116,17 +1099,15 @@ uploadForm.addEventListener('submit', async (event) => {
     document.getElementById('delete-link').href = payload.deleteUrl || '#';
     document.getElementById('delete-link').textContent = payload.deleteUrl || 'Receiver delete disabled.';
     accessCodeEl.textContent = payload.accessCode || 'N/A';
+    resultPasswordEl.textContent = password;
+    resultPasswordLabelEl.textContent = passwordWasGenerated ? 'generated password' : 'password';
     uploadCompleteExpiryEl.textContent = `Expires at ${expiresAtText}.`;
     deleteRowEl.classList.toggle('hidden', !payload.deleteUrl);
-    if (qrMode) {
-      await renderQrResult(buildQrDownloadUrl(payload.downloadUrl, password));
-    } else {
-      clearQrResult();
-    }
+    await renderQrResult(buildQrDownloadUrl(payload.downloadUrl, password));
     if (completeNoteEl) {
-      completeNoteEl.textContent = qrMode
-        ? 'QR Mode embeds the decryption key in the QR/link. Anyone with it can decrypt before expiry.'
-        : 'Share the download URL/code and password separately.';
+      completeNoteEl.textContent = passwordWasGenerated
+        ? 'The password was generated only in this browser. Share the code and password separately, or use the QR link as the complete secret.'
+        : 'Share the code and password separately, or use the QR link as the complete secret.';
     }
 
     uploadForm.classList.add('hidden');
@@ -1146,6 +1127,14 @@ copyCodeBtn.addEventListener('click', async () => {
     return;
   }
   await copyToClipboard(value, copyCodeBtn);
+});
+
+copyPasswordBtn.addEventListener('click', async () => {
+  const value = resultPasswordEl.textContent || '';
+  if (!value) {
+    return;
+  }
+  await copyToClipboard(value, copyPasswordBtn);
 });
 
 copyDownloadBtn.addEventListener('click', async () => {
