@@ -16,7 +16,7 @@
     "vendor:qr": "mkdir -p public/vendor && esbuild node_modules/qrcode/lib/browser.js --bundle --format=iife --global-name=ReivenQR --platform=browser --target=es2020 --minify --outfile=public/vendor/qrcode.min.js"
   },
   "devDependencies": {
-    "esbuild": "^0.28.1"
+    "esbuild": "^0.28.2"
   },
   "dependencies": {
     "@noble/post-quantum": "0.7.1",
